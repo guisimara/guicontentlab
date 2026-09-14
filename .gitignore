@@ -1,0 +1,7 @@
+node_modules
+.next
+/tmp
+*.log
+.DS_Store
+lib/fonts.generated.ts
+tsconfig.tsbuildinfo
