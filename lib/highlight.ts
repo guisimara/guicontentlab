@@ -71,11 +71,11 @@ function tokenize(text: string): Token[] {
   return tokens;
 }
 
-// Applies manual **word** markup: returns html with <b class="wine"> or
+// Applies manual **word** markup: returns html with <b class="azul"> or
 // <b class="w700"> wrapping, and strips the ** markers.
-function applyManualMarkup(text: string, wineColor: boolean): { html: string; count: number } {
+function applyManualMarkup(text: string, azulColor: boolean): { html: string; count: number } {
   let count = 0;
-  const cls = wineColor ? "wine" : "w700";
+  const cls = azulColor ? "azul" : "w700";
   const html = escapeHtml(text).replace(/\*\*([^*]+)\*\*/g, (_m, inner) => {
     count++;
     return `<b class="${cls}">${inner}</b>`;
@@ -195,7 +195,7 @@ export function highlightMioloParagraph(
   let cursor = 0;
   for (const s of merged) {
     html += escapeHtml(text.slice(cursor, s.start));
-    html += `<b class="wine">${escapeHtml(text.slice(s.start, s.end))}</b>`;
+    html += `<b class="azul">${escapeHtml(text.slice(s.start, s.end))}</b>`;
     cursor = s.end;
   }
   html += escapeHtml(text.slice(cursor));

@@ -125,3 +125,88 @@ Every place the spec was ambiguous, and the literal-reading decision taken.
     multiple paragraphs under `[CAPA]`/`[CTA]`, they are joined with a
     single space into one headline string before highlighting, since the
     spec's capa/cta layout has one headline block, not multiple paragraphs.
+
+---
+
+## @guisimara rebrand (Content Lab)
+
+Decisions taken while adapting the Letícia Fessel tool into "CONTENT LAB |
+Gui Simara" for @guisimara, keeping the exact same logic/engine and only
+changing colors, names, copy and the two format options below.
+
+15. **Blue brand color value.** The spec said "altere para azul" without a
+    hex code. Sampled the fully-opaque region of the user-provided mask
+    asset (`img/teste1.png`, bottom of the canvas) and used that exact
+    value, `#0F3250`, as `TOKENS.azul` (replacing `TOKENS.vinho`), so the
+    miolo highlight/footer color visually matches the capa mask asset.
+    Confirmed with the user before implementing.
+
+16. **Miolo/capa background watermark vs. dynamic footer — patched out, not
+    left as-is.** Both `img/miolo.png` and `img/teste1.png` contain a faint
+    reference "@guisimara" watermark baked in at y≈1232-1254 (bbox
+    pixel-sampled, x≈475-605), close to but not pixel-identical to where the
+    dynamic CSS footer handle renders (`top: 1227px` miolo / `top: 1210px`
+    capa). Initially assumed this was harmless since the positions roughly
+    coincide, but rendering a test card showed the two actually visibly
+    double-expose/stack into garbled text (different font/size/weight than
+    the live Poppins footer). Fixed in `lib/assets.ts`: before embedding
+    either asset as a data URI, a clean 1080×35px strip is cloned from each
+    asset's own flat background (y=1180-1215, sampled to confirm near-zero
+    variance there) and composited over the y=1225-1260 watermark region,
+    so only the dynamic footer text shows. The source files in `img/` are
+    left untouched — the patch is applied in-memory at load time.
+
+17. **Capa/CTA mask compositing — plain overlay, no CSS blend mode.** The
+    old `.grain` (SVG feTurbulence) + `.shadow-band` (CSS gradient) layers
+    are replaced by a single `<img class="mask">` using the user-provided
+    `img/teste1.png` (tested asset; the user said the final PNG model may
+    still change — only the file needs swapping, the `<img class="mask">`
+    wrapper stays the same). Pixel-sampled the asset's alpha channel: it
+    fades from near-transparent (alpha ~48) at the top grain area to fully
+    opaque (alpha 255) navy by ~y=1000, already baking in the
+    grain-to-shadow-to-solid effect. Composited as a normal (non-blended)
+    absolutely-positioned image on top of the user's photo — no
+    `mix-blend-mode`/opacity needed since the asset's own alpha does the
+    work, unlike the old procedural grain layer which needed
+    `mix-blend-mode: overlay`.
+
+18. **Headline box: range spec, not a single anchor.** Old spec gave one
+    fixed anchor (baseline at y=1150). New spec gives a range: headline
+    must sit "entre 532px e 277px de baixo para cima", i.e. between
+    `top: 818px` (1350-532) and `top: 1073px` (1350-277) measured from the
+    canvas top — a 255px-tall zone. Per the project's existing convention
+    (decision #4: anchor via the wrapping div's bottom edge, not true glyph
+    baseline), implemented as `bottom: 277px` (pinning the box to the lower
+    bound of the zone) with no enforced `max-height`/clipping at the
+    255px mark — consistent with the original implementation's choice to
+    not hard-clip overflowing headlines. Side margins set to the explicitly
+    given `105px` each side (`left: 105px; width: 870px`), replacing the
+    old `100px`/`880px` values.
+
+19. **"Leia a legenda" tag — placeholder pending final asset.** The user
+    will send a reference PNG for this tag later. Implemented now as a
+    simple text pill (`readCaptionTag()` in `lib/template.ts`) positioned
+    per the given spec (`bottom: 193px`, 59px-tall zone up to 252px from
+    the bottom), toggled per-job via `showReadCaptionTag` (capa only, never
+    on cta). Horizontal placement/width is not specified by the brief —
+    assumed centered within the same `105px` side margins used for the
+    headline, for visual consistency. When the final asset arrives, only
+    `readCaptionTag()`'s inner markup needs to change (e.g., to an
+    `<img>`); the positioning wrapper and toggle plumbing do not.
+
+20. **"Estático" format scope.** Confirmed with the user: "Estático"
+    renders only the capa card (1 PNG, `01-capa.png`), skipping miolo and
+    CTA entirely — no CTA image upload is required/used, and parser
+    warnings about missing miolo/CTA cards are suppressed in this mode
+    since they're intentionally not rendered. "Carrossel" keeps the
+    original full behavior (capa + miolo(s) + CTA) unchanged.
+
+21. **QA "fundo do miolo" check adapted from literal #FFFFFF to the brand
+    asset's own sampled pixel.** The original check hard-coded
+    `rgb(255,255,255)` per the old white-background spec. Since the miolo
+    background is now `img/miolo.png` (textured, not flat white), the
+    check now samples the same reference pixel from the source asset file
+    itself and compares every rendered miolo card's pixel against that
+    reference — preserving the original check's real invariant ("background
+    identical across every card in the job") without hard-coding a stale
+    literal.

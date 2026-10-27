@@ -81,28 +81,38 @@ export async function runQaChecklist(params: {
   const under2 = params.finalMioloHighlightCounts.filter((c) => c < 2).length;
   checks.push({
     id: "min-highlights",
-    label: "Todo card de miolo com pelo menos 2 destaques em vinho",
+    label: "Todo card de miolo com pelo menos 2 destaques em azul",
     pass: under2 === 0,
     detail: under2 ? `${under2} card(s) com menos de 2 destaques` : undefined,
   });
 
-  // 5. Miolo background pure #FFFFFF, sampled
+  // 5. Miolo background identical to the brand asset (img/miolo.png) on every card.
+  // Sampled against the source asset itself rather than a hardcoded #FFFFFF,
+  // since the brand background is now a textured image, not a flat fill.
   let bgOk = true;
   const bgDetails: string[] = [];
-  for (const f of params.cardFiles.filter((c) => c.kind === "miolo")) {
-    const { data, info } = await sharp(path.join(params.jobDir, f.filename))
+  const mioloFiles = params.cardFiles.filter((c) => c.kind === "miolo");
+  if (mioloFiles.length > 0) {
+    const { data: refData } = await sharp(path.join(process.cwd(), "img", "miolo.png"))
       .extract({ left: 10, top: 10, width: 1, height: 1 })
       .raw()
       .toBuffer({ resolveWithObject: true });
-    const [r, g, b] = data;
-    if (r !== 255 || g !== 255 || b !== 255) {
-      bgOk = false;
-      bgDetails.push(`${f.filename}: rgb(${r},${g},${b})`);
+    const [refR, refG, refB] = refData;
+    for (const f of mioloFiles) {
+      const { data } = await sharp(path.join(params.jobDir, f.filename))
+        .extract({ left: 10, top: 10, width: 1, height: 1 })
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+      const [r, g, b] = data;
+      if (r !== refR || g !== refG || b !== refB) {
+        bgOk = false;
+        bgDetails.push(`${f.filename}: rgb(${r},${g},${b}) esperado rgb(${refR},${refG},${refB})`);
+      }
     }
   }
   checks.push({
     id: "bg-white",
-    label: "Fundo do miolo em #FFFFFF puro, idêntico em todos os cards",
+    label: "Fundo do miolo idêntico ao asset de marca em todos os cards",
     pass: bgOk,
     detail: bgOk ? undefined : bgDetails.join(", "),
   });
@@ -164,6 +174,8 @@ export async function runQaChecklist(params: {
 function checkSequence(filenames: string[]): boolean {
   if (filenames.length === 0) return false;
   if (filenames[0] !== "01-capa.png") return false;
+  // Formato Estático: job de uma única imagem (só a capa), sem CTA.
+  if (filenames.length === 1) return true;
   if (filenames[filenames.length - 1] !== `${String(filenames.length).padStart(2, "0")}-cta.png`) return false;
   for (let i = 1; i < filenames.length - 1; i++) {
     const expected = `${String(i + 1).padStart(2, "0")}.png`;

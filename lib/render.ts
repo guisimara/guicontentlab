@@ -17,6 +17,8 @@ export interface RenderInput {
   ctaImageBase64?: string; // optional; if missing, reuse capa
   capaFocalPoint: string;
   ctaFocalPoint: string;
+  format: "carrossel" | "estatico"; // estatico = only the capa card is rendered
+  showReadCaptionTag: boolean; // capa-only "leia a legenda" tag
 }
 
 export interface RenderOutcome {
@@ -58,21 +60,23 @@ async function checkImageResolution(dataUri: string): Promise<{ ok: boolean; wid
 }
 
 export async function renderJob(input: RenderInput): Promise<RenderOutcome> {
+  const isEstatico = input.format === "estatico";
   const warnings: string[] = [];
   const jobDir = path.join(JOBS_ROOT, input.jobId);
   await mkdir(jobDir, { recursive: true });
 
   const { cards, warnings: parseWarnings } = parseCopy(input.copyText);
-  warnings.push(...parseWarnings);
+  // Formato Estático só usa a capa — avisos sobre miolo/cta ausentes não se aplicam.
+  warnings.push(...(isEstatico ? parseWarnings.filter((w) => !/card de (miolo|cta)/i.test(w)) : parseWarnings));
 
   let ctaImage = input.ctaImageBase64;
-  if (!ctaImage) {
+  if (!isEstatico && !ctaImage) {
     ctaImage = input.capaImageBase64;
     warnings.push("Imagem de CTA não enviada — a imagem da capa foi reutilizada.");
   }
 
   const capaRes = await checkImageResolution(input.capaImageBase64);
-  const ctaRes = await checkImageResolution(ctaImage);
+  const ctaRes = isEstatico ? { ok: true, width: 0, height: 0 } : await checkImageResolution(ctaImage!);
 
   if (!capaRes.ok) {
     return {
@@ -82,7 +86,7 @@ export async function renderJob(input: RenderInput): Promise<RenderOutcome> {
       fatalError: `Imagem da capa tem lado menor de ${Math.min(capaRes.width, capaRes.height)}px — mínimo exigido é 1080px. Envie uma imagem maior.`,
     };
   }
-  if (!ctaRes.ok) {
+  if (!isEstatico && !ctaRes.ok) {
     return {
       jobId: input.jobId,
       report: emptyReport(input.jobId, warnings),
@@ -131,15 +135,22 @@ export async function renderJob(input: RenderInput): Promise<RenderOutcome> {
     // --- Capa ---
     const capaCard = cards.find((c) => c.kind === "capa");
     if (capaCard) {
-      const { buffer, entry } = await renderCapaCard(page, capaCard, input.capaImageBase64, input.capaFocalPoint, "capa");
+      const { buffer, entry } = await renderCapaCard(
+        page,
+        capaCard,
+        input.capaImageBase64,
+        input.capaFocalPoint,
+        "capa",
+        input.showReadCaptionTag
+      );
       finalFiles.push({ filename: "PENDING-capa.png", kind: "capa", buffer });
       cardReports.push(entry);
     } else {
       warnings.push("Sem card de capa — nenhuma imagem de capa foi renderizada.");
     }
 
-    // --- Miolo (with splitting) ---
-    const mioloCards = cards.filter((c) => c.kind === "miolo");
+    // --- Miolo (with splitting) --- (pulado no formato Estático)
+    const mioloCards = isEstatico ? [] : cards.filter((c) => c.kind === "miolo");
     for (const mc of mioloCards) {
       const highlightsByIndex: { word: string; type: string }[][] = [];
       const units: ParagraphUnit[] = mc.paragraphs.map((p, idx) => {
@@ -188,13 +199,13 @@ export async function renderJob(input: RenderInput): Promise<RenderOutcome> {
       }
     }
 
-    // --- CTA ---
-    const ctaCard = cards.find((c) => c.kind === "cta");
+    // --- CTA --- (pulado no formato Estático)
+    const ctaCard = isEstatico ? undefined : cards.find((c) => c.kind === "cta");
     if (ctaCard) {
-      const { buffer, entry } = await renderCapaCard(page, ctaCard, ctaImage, input.ctaFocalPoint, "cta");
+      const { buffer, entry } = await renderCapaCard(page, ctaCard, ctaImage!, input.ctaFocalPoint, "cta");
       finalFiles.push({ filename: "PENDING-cta.png", kind: "cta", buffer });
       cardReports.push(entry);
-    } else {
+    } else if (!isEstatico) {
       warnings.push("Sem card de CTA — nenhuma imagem de CTA foi renderizada.");
     }
 
@@ -275,7 +286,8 @@ async function renderCapaCard(
   card: RawCard,
   imageDataUri: string,
   focalPoint: string,
-  variant: "capa" | "cta"
+  variant: "capa" | "cta",
+  showReadCaptionTag = false
 ): Promise<{ buffer: Buffer; entry: CardReportEntry }> {
   const fullText = card.paragraphs.map((p) => p.text).join(" ");
   const hl = highlightCapaCta(fullText, { manualOverride: card.manualMarkupUsed });
@@ -285,6 +297,7 @@ async function renderCapaCard(
     imageDataUri,
     focalPoint: fp,
     variant,
+    showReadCaptionTag,
   });
   await page.setContent(html, { waitUntil: "domcontentloaded" });
   const { ok300: c300, ok700: c700 } = await ensureFontsLoaded(page);

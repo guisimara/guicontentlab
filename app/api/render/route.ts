@@ -12,6 +12,8 @@ export async function POST(req: NextRequest) {
     const capaFocalPoint = String(form.get("capaFocalPoint") || "center");
     const ctaFocalPoint = String(form.get("ctaFocalPoint") || "center");
     const jobId = String(form.get("jobId") || randomUUID());
+    const format = String(form.get("format") || "carrossel") === "estatico" ? "estatico" : "carrossel";
+    const showReadCaptionTag = String(form.get("showReadCaptionTag") || "false") === "true";
 
     const capaFile = form.get("capaImage") as File | null;
     const ctaFile = form.get("ctaImage") as File | null;
@@ -33,6 +35,8 @@ export async function POST(req: NextRequest) {
       ctaImageBase64,
       capaFocalPoint,
       ctaFocalPoint,
+      format,
+      showReadCaptionTag,
     });
 
     if (outcome.fatalError) {

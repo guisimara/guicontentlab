@@ -1,16 +1,18 @@
 {
-  "name": "let-content",
+  "name": "content-lab-gui-simara",
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "predev": "npm run build:fonts",
-    "prebuild": "npm run build:fonts",
+    "predev": "npm run build:fonts && npm run build:assets",
+    "prebuild": "npm run build:fonts && npm run build:assets",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "build:fonts": "node scripts/build-fonts.mjs",
-    "selftest": "node scripts/selftest.mjs"
+    "build:assets": "node scripts/build-assets.mjs",
+    "preselftest": "npm run build:fonts && npm run build:assets",
+    "selftest": "tsx scripts/selftest.mjs"
   },
   "dependencies": {
     "@fontsource/poppins": "^5.1.0",

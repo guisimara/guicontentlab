@@ -77,6 +77,8 @@ async function run() {
     ctaImageBase64: `data:image/jpeg;base64,${ctaBuf.toString("base64")}`,
     capaFocalPoint: "center",
     ctaFocalPoint: "center",
+    format: "carrossel",
+    showReadCaptionTag: true,
   });
 
   console.log("=== SELFTEST OUTCOME ===");

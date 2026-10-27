@@ -7,6 +7,8 @@ type Focal =
   | "center-left" | "center" | "center-right"
   | "bottom-left" | "bottom-center" | "bottom-right";
 
+type Formato = "carrossel" | "estatico";
+
 const FOCAL_GRID: Focal[] = [
   "top-left", "top-center", "top-right",
   "center-left", "center", "center-right",
@@ -60,6 +62,8 @@ export default function Page() {
   const [ctaPreviewUrl, setCtaPreviewUrl] = useState<string | null>(null);
   const [capaFocal, setCapaFocal] = useState<Focal>("center");
   const [ctaFocal, setCtaFocal] = useState<Focal>("center");
+  const [formato, setFormato] = useState<Formato>("carrossel");
+  const [showReadCaptionTag, setShowReadCaptionTag] = useState(false);
 
   const [confirmed, setConfirmed] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -94,8 +98,10 @@ export default function Page() {
       fd.set("copyText", copyText);
       fd.set("capaFocalPoint", capaFocal);
       fd.set("ctaFocalPoint", ctaFocal);
+      fd.set("format", formato);
+      fd.set("showReadCaptionTag", String(showReadCaptionTag));
       if (capaFile) fd.set("capaImage", capaFile);
-      if (ctaFile) fd.set("ctaImage", ctaFile);
+      if (ctaFile && formato === "carrossel") fd.set("ctaImage", ctaFile);
 
       const res = await fetch("/api/render", { method: "POST", body: fd });
       const data = await res.json();
@@ -125,24 +131,51 @@ export default function Page() {
   return (
     <div className="mx-auto max-w-5xl px-6 py-10">
       <header className="mb-10">
-        <h1 className="text-2xl font-medium tracking-tight">Let Content</h1>
+        <h1 className="text-2xl font-medium tracking-tight">CONTENT LAB | Gui Simara</h1>
         <p className="mt-1 text-sm text-neutral-500">
-          Cole a copy do carrossel, envie as imagens de capa e CTA, e gere as artes finais em 1080x1350.
+          Cole a copy, envie as imagens de capa (e CTA, se for carrossel), e gere as artes finais em 1080x1350.
         </p>
       </header>
 
-      {/* 1. Input */}
+      {/* 1. Formato */}
       <section className="mb-8 rounded-2xl border border-neutral-200 bg-white p-6">
-        <h2 className="mb-3 text-sm font-medium text-neutral-700">Copy do carrossel</h2>
+        <h2 className="mb-3 text-sm font-medium text-neutral-700">Formato do conteúdo</h2>
+        <BulletSelect
+          value={formato}
+          onChange={setFormato}
+          options={[
+            { value: "carrossel", label: "Carrossel", description: "Capa + miolo(s) + CTA" },
+            { value: "estatico", label: "Estático", description: "Apenas a capa, 1 imagem" },
+          ]}
+        />
+
+        <h2 className="mb-3 mt-6 text-sm font-medium text-neutral-700">Tag "leia a legenda" na capa</h2>
+        <BulletSelect
+          value={showReadCaptionTag ? "com" : "sem"}
+          onChange={(v) => setShowReadCaptionTag(v === "com")}
+          options={[
+            { value: "sem", label: "Sem tag", description: "Capa limpa, sem selo" },
+            { value: "com", label: "Com tag", description: "Placeholder até o PNG final ser enviado" },
+          ]}
+        />
+      </section>
+
+      {/* 2. Input */}
+      <section className="mb-8 rounded-2xl border border-neutral-200 bg-white p-6">
+        <h2 className="mb-3 text-sm font-medium text-neutral-700">Copy {formato === "estatico" ? "da capa" : "do carrossel"}</h2>
         <textarea
           value={copyText}
           onChange={(e) => setCopyText(e.target.value)}
           rows={12}
-          placeholder={"[CAPA]\nFrase da capa aqui\n\n[MIOLO]\nTexto do card 2\n\n---\n\nTexto do card 3\n\n[CTA]\nFrase do CTA aqui"}
+          placeholder={
+            formato === "estatico"
+              ? "[CAPA]\nFrase da capa aqui"
+              : "[CAPA]\nFrase da capa aqui\n\n[MIOLO]\nTexto do card 2\n\n---\n\nTexto do card 3\n\n[CTA]\nFrase do CTA aqui"
+          }
           className="w-full resize-y rounded-xl border border-neutral-200 bg-neutral-50 p-4 text-sm leading-relaxed outline-none focus:border-neutral-400"
         />
 
-        <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2">
+        <div className={`mt-6 grid grid-cols-1 gap-6 ${formato === "carrossel" ? "sm:grid-cols-2" : ""}`}>
           <ImageUploader
             label="Imagem de capa (obrigatória)"
             previewUrl={capaPreviewUrl}
@@ -151,36 +184,42 @@ export default function Page() {
             onFocal={setCapaFocal}
             inputRef={capaInputRef}
           />
-          <ImageUploader
-            label="Imagem de CTA (opcional — se ausente, reaproveita a da capa)"
-            previewUrl={ctaPreviewUrl}
-            onFile={(f) => handleFile(f, "cta")}
-            focal={ctaFocal}
-            onFocal={setCtaFocal}
-            inputRef={ctaInputRef}
-          />
+          {formato === "carrossel" && (
+            <ImageUploader
+              label="Imagem de CTA (opcional — se ausente, reaproveita a da capa)"
+              previewUrl={ctaPreviewUrl}
+              onFile={(f) => handleFile(f, "cta")}
+              focal={ctaFocal}
+              onFocal={setCtaFocal}
+              inputRef={ctaInputRef}
+            />
+          )}
         </div>
       </section>
 
-      {/* 2. Pre-analysis */}
+      {/* 3. Pre-analysis */}
       {analysis && (
         <section className="mb-8 rounded-2xl border border-neutral-200 bg-white p-6">
           <h2 className="mb-3 text-sm font-medium text-neutral-700">Pré-análise</h2>
           <ul className="space-y-1 text-sm text-neutral-600">
             <li>Cards detectados (estimativa): {analysis.totalCardsEstimate}</li>
-            <li>Cards de miolo: {analysis.mioloCount}</li>
-            <li>
-              Cards com possível necessidade de divisão (estimativa por tamanho de texto):{" "}
-              {analysis.likelySplits}
-            </li>
+            {formato === "carrossel" && <li>Cards de miolo: {analysis.mioloCount}</li>}
+            {formato === "carrossel" && (
+              <li>
+                Cards com possível necessidade de divisão (estimativa por tamanho de texto):{" "}
+                {analysis.likelySplits}
+              </li>
+            )}
             {!analysis.hasMarkers && (
               <li className="text-amber-700">
                 Nenhum marcador [CAPA]/[MIOLO]/[CTA] encontrado — o primeiro bloco será tratado como
-                capa, o último como CTA, e o restante como miolo.
+                capa{formato === "carrossel" ? ", o último como CTA, e o restante como miolo" : ""}.
               </li>
             )}
             {!capaFile && <li className="text-amber-700">Imagem de capa ainda não enviada.</li>}
-            {!ctaFile && <li className="text-neutral-500">Imagem de CTA não enviada — será reaproveitada a da capa.</li>}
+            {formato === "carrossel" && !ctaFile && (
+              <li className="text-neutral-500">Imagem de CTA não enviada — será reaproveitada a da capa.</li>
+            )}
           </ul>
 
           <label className="mt-4 flex items-center gap-2 text-sm text-neutral-700">
@@ -204,7 +243,7 @@ export default function Page() {
         </section>
       )}
 
-      {/* 3. Preview */}
+      {/* 4. Preview */}
       {previews.length > 0 && (
         <section className="mb-8 rounded-2xl border border-neutral-200 bg-white p-6">
           <h2 className="mb-4 text-sm font-medium text-neutral-700">Prévia</h2>
@@ -297,6 +336,42 @@ export default function Page() {
           />
         </div>
       )}
+    </div>
+  );
+}
+
+function BulletSelect<T extends string>(props: {
+  value: T;
+  onChange: (v: T) => void;
+  options: { value: T; label: string; description: string }[];
+}) {
+  return (
+    <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
+      {props.options.map((opt) => {
+        const active = props.value === opt.value;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => props.onChange(opt.value)}
+            className={`flex flex-1 items-start gap-3 rounded-xl border p-3 text-left transition ${
+              active ? "border-neutral-900 bg-neutral-50" : "border-neutral-200 bg-white"
+            }`}
+          >
+            <span
+              className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+                active ? "border-neutral-900" : "border-neutral-300"
+              }`}
+            >
+              {active && <span className="h-2 w-2 rounded-full bg-neutral-900" />}
+            </span>
+            <span>
+              <span className="block text-sm font-medium text-neutral-800">{opt.label}</span>
+              <span className="block text-xs text-neutral-500">{opt.description}</span>
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }

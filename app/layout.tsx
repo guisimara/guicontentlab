@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Let Content — gerador de carrossel",
-  description: "Ferramenta local para gerar artes de carrossel a partir de copy.",
+  title: "CONTENT LAB | Gui Simara",
+  description: "Ferramenta local para gerar artes de carrossel e estáticos a partir de copy.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
