@@ -15,6 +15,8 @@ const FOCAL_GRID: Focal[] = [
   "bottom-left", "bottom-center", "bottom-right",
 ];
 
+const AZUL = "#0F3250";
+
 interface QaCheck { id: string; label: string; pass: boolean; detail?: string }
 interface CardReportEntry {
   filename: string;
@@ -73,6 +75,7 @@ export default function Page() {
   const [jobId, setJobId] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<Preview | null>(null);
   const [downloadOverride, setDownloadOverride] = useState(false);
+  const [qaExpanded, setQaExpanded] = useState<boolean | null>(null);
 
   const capaInputRef = useRef<HTMLInputElement>(null);
   const ctaInputRef = useRef<HTMLInputElement>(null);
@@ -93,6 +96,7 @@ export default function Page() {
     setError(null);
     setLoading(true);
     setDownloadOverride(false);
+    setQaExpanded(null);
     try {
       const fd = new FormData();
       fd.set("copyText", copyText);
@@ -127,202 +131,258 @@ export default function Page() {
   }
 
   const canDownload = report ? report.qaPassed || downloadOverride : false;
+  const qaFailCount = report ? report.qa.filter((q) => !q.pass).length : 0;
+  const showQaDetails = qaExpanded ?? (report ? !report.qaPassed : false);
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-10">
-      <header className="mb-10">
-        <h1 className="text-2xl font-medium tracking-tight">CONTENT LAB | Gui Simara</h1>
-        <p className="mt-1 text-sm text-neutral-500">
-          Cole a copy, envie as imagens de capa (e CTA, se for carrossel), e gere as artes finais em 1080x1350.
-        </p>
+    <div className="mx-auto max-w-[1600px] px-10 py-8 2xl:px-20">
+      {/* Header */}
+      <header className="mb-6 flex items-center gap-3">
+        <div
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-bold text-white"
+          style={{ backgroundColor: AZUL }}
+        >
+          GS
+        </div>
+        <div>
+          <h1 className="text-lg font-semibold tracking-tight text-neutral-900">CONTENT LAB | Gui Simara</h1>
+          <p className="text-xs text-neutral-500">Carrosséis e estáticos 1080×1350 em segundos</p>
+        </div>
       </header>
 
-      {/* 1. Formato */}
-      <section className="mb-8 rounded-2xl border border-neutral-200 bg-white p-6">
-        <h2 className="mb-3 text-sm font-medium text-neutral-700">Formato do conteúdo</h2>
-        <BulletSelect
-          value={formato}
-          onChange={setFormato}
-          options={[
-            { value: "carrossel", label: "Carrossel", description: "Capa + miolo(s) + CTA" },
-            { value: "estatico", label: "Estático", description: "Apenas a capa, 1 imagem" },
-          ]}
-        />
-
-        <h2 className="mb-3 mt-6 text-sm font-medium text-neutral-700">Tag "leia a legenda" na capa</h2>
-        <BulletSelect
-          value={showReadCaptionTag ? "com" : "sem"}
-          onChange={(v) => setShowReadCaptionTag(v === "com")}
-          options={[
-            { value: "sem", label: "Sem tag", description: "Capa limpa, sem selo" },
-            { value: "com", label: "Com tag", description: "Placeholder até o PNG final ser enviado" },
-          ]}
-        />
-      </section>
-
-      {/* 2. Input */}
-      <section className="mb-8 rounded-2xl border border-neutral-200 bg-white p-6">
-        <h2 className="mb-3 text-sm font-medium text-neutral-700">Copy {formato === "estatico" ? "da capa" : "do carrossel"}</h2>
-        <textarea
-          value={copyText}
-          onChange={(e) => setCopyText(e.target.value)}
-          rows={12}
-          placeholder={
-            formato === "estatico"
-              ? "[CAPA]\nFrase da capa aqui"
-              : "[CAPA]\nFrase da capa aqui\n\n[MIOLO]\nTexto do card 2\n\n---\n\nTexto do card 3\n\n[CTA]\nFrase do CTA aqui"
-          }
-          className="w-full resize-y rounded-xl border border-neutral-200 bg-neutral-50 p-4 text-sm leading-relaxed outline-none focus:border-neutral-400"
-        />
-
-        <div className={`mt-6 grid grid-cols-1 gap-6 ${formato === "carrossel" ? "sm:grid-cols-2" : ""}`}>
-          <ImageUploader
-            label="Imagem de capa (obrigatória)"
-            previewUrl={capaPreviewUrl}
-            onFile={(f) => handleFile(f, "capa")}
-            focal={capaFocal}
-            onFocal={setCapaFocal}
-            inputRef={capaInputRef}
-          />
-          {formato === "carrossel" && (
-            <ImageUploader
-              label="Imagem de CTA (opcional — se ausente, reaproveita a da capa)"
-              previewUrl={ctaPreviewUrl}
-              onFile={(f) => handleFile(f, "cta")}
-              focal={ctaFocal}
-              onFocal={setCtaFocal}
-              inputRef={ctaInputRef}
-            />
-          )}
-        </div>
-      </section>
-
-      {/* 3. Pre-analysis */}
-      {analysis && (
-        <section className="mb-8 rounded-2xl border border-neutral-200 bg-white p-6">
-          <h2 className="mb-3 text-sm font-medium text-neutral-700">Pré-análise</h2>
-          <ul className="space-y-1 text-sm text-neutral-600">
-            <li>Cards detectados (estimativa): {analysis.totalCardsEstimate}</li>
-            {formato === "carrossel" && <li>Cards de miolo: {analysis.mioloCount}</li>}
-            {formato === "carrossel" && (
-              <li>
-                Cards com possível necessidade de divisão (estimativa por tamanho de texto):{" "}
-                {analysis.likelySplits}
-              </li>
-            )}
-            {!analysis.hasMarkers && (
-              <li className="text-amber-700">
-                Nenhum marcador [CAPA]/[MIOLO]/[CTA] encontrado — o primeiro bloco será tratado como
-                capa{formato === "carrossel" ? ", o último como CTA, e o restante como miolo" : ""}.
-              </li>
-            )}
-            {!capaFile && <li className="text-amber-700">Imagem de capa ainda não enviada.</li>}
-            {formato === "carrossel" && !ctaFile && (
-              <li className="text-neutral-500">Imagem de CTA não enviada — será reaproveitada a da capa.</li>
-            )}
-          </ul>
-
-          <label className="mt-4 flex items-center gap-2 text-sm text-neutral-700">
-            <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
-            Revisei a pré-análise e quero gerar as artes.
-          </label>
-
-          <button
-            onClick={handleGenerate}
-            disabled={!confirmed || !capaFile || loading}
-            className="mt-4 rounded-xl bg-neutral-900 px-5 py-2.5 text-sm font-medium text-white disabled:opacity-40"
-          >
-            {loading ? "Gerando..." : "Gerar artes"}
-          </button>
-        </section>
-      )}
-
-      {error && (
-        <section className="mb-8 rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-800">
-          {error}
-        </section>
-      )}
-
-      {/* 4. Preview */}
-      {previews.length > 0 && (
-        <section className="mb-8 rounded-2xl border border-neutral-200 bg-white p-6">
-          <h2 className="mb-4 text-sm font-medium text-neutral-700">Prévia</h2>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            {previews.map((p) => (
-              <button
-                key={p.filename}
-                onClick={() => setLightbox(p)}
-                className="group overflow-hidden rounded-lg border border-neutral-200 text-left"
-              >
-                <img
-                  src={`data:image/png;base64,${p.base64}`}
-                  alt={p.filename}
-                  className="aspect-[4/5] w-full object-cover"
-                />
-                <div className="px-2 py-1 text-xs text-neutral-500">{p.filename}</div>
-              </button>
-            ))}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {/* Left column: Step 1 */}
+        <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+          <div className="mb-3 flex items-center gap-2">
+            <StepBadge n={1} />
+            <h2 className="text-sm font-medium text-neutral-800">Formato e copy</h2>
           </div>
-        </section>
-      )}
 
-      {/* 5. QA report */}
-      {report && (
-        <section className="mb-8 rounded-2xl border border-neutral-200 bg-white p-6">
-          <h2 className="mb-3 text-sm font-medium text-neutral-700">Checklist de QA</h2>
-          <ul className="space-y-1.5 text-sm">
-            {report.qa.map((q) => (
-              <li key={q.id} className="flex items-start gap-2">
-                <span className={q.pass ? "text-green-600" : "text-red-600"}>{q.pass ? "✓" : "✗"}</span>
-                <span>
-                  {q.label}
-                  {q.detail && <span className="ml-1 text-neutral-500">— {q.detail}</span>}
-                </span>
-              </li>
-            ))}
-          </ul>
+          <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <BulletSelect
+              value={formato}
+              onChange={setFormato}
+              options={[
+                { value: "carrossel", label: "Carrossel", description: "Capa + miolo(s) + CTA" },
+                { value: "estatico", label: "Estático", description: "Apenas a capa" },
+              ]}
+            />
+            <BulletSelect
+              value={showReadCaptionTag ? "com" : "sem"}
+              onChange={(v) => setShowReadCaptionTag(v === "com")}
+              options={[
+                { value: "sem", label: "Sem tag", description: '"Leia a legenda"' },
+                { value: "com", label: "Com tag", description: "Placeholder" },
+              ]}
+            />
+          </div>
 
-          {report.warnings.length > 0 && (
-            <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
-              <div className="mb-1 font-medium">Avisos</div>
-              <ul className="list-disc pl-5">
-                {report.warnings.map((w, i) => (
-                  <li key={i}>{w}</li>
-                ))}
-              </ul>
+          <textarea
+            value={copyText}
+            onChange={(e) => setCopyText(e.target.value)}
+            rows={9}
+            placeholder={
+              formato === "estatico"
+                ? "[CAPA]\nFrase da capa aqui"
+                : "[CAPA]\nFrase da capa aqui\n\n[MIOLO]\nTexto do card 2\n\n---\n\nTexto do card 3\n\n[CTA]\nFrase do CTA aqui"
+            }
+            className="w-full resize-y rounded-xl border border-neutral-200 bg-neutral-50 p-3.5 text-sm leading-relaxed outline-none transition-colors focus:border-neutral-400"
+          />
+
+          <div className="mt-4 flex flex-col gap-4">
+            <ImageUploader
+              label="Imagem de capa"
+              previewUrl={capaPreviewUrl}
+              onFile={(f) => handleFile(f, "capa")}
+              focal={capaFocal}
+              onFocal={setCapaFocal}
+              inputRef={capaInputRef}
+            />
+            {formato === "carrossel" && (
+              <ImageUploader
+                label="Imagem de CTA (opcional)"
+                previewUrl={ctaPreviewUrl}
+                onFile={(f) => handleFile(f, "cta")}
+                focal={ctaFocal}
+                onFocal={setCtaFocal}
+                inputRef={ctaInputRef}
+              />
+            )}
+          </div>
+
+          {analysis && (
+            <div className="mt-4 rounded-xl bg-neutral-50 px-4 py-3">
+              <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-neutral-600">
+                <span><b className="font-semibold text-neutral-800">{analysis.totalCardsEstimate}</b> cards estimados</span>
+                {formato === "carrossel" && (
+                  <span><b className="font-semibold text-neutral-800">{analysis.mioloCount}</b> de miolo</span>
+                )}
+                {formato === "carrossel" && analysis.likelySplits > 0 && (
+                  <span className="text-amber-700">
+                    <b className="font-semibold">{analysis.likelySplits}</b> podem dividir em 2 cards
+                  </span>
+                )}
+              </div>
+              {!analysis.hasMarkers && (
+                <p className="mt-1.5 text-xs text-amber-700">
+                  Sem marcadores [CAPA]/[MIOLO]/[CTA] — o 1º bloco vira capa
+                  {formato === "carrossel" ? ", o último vira CTA." : "."}
+                </p>
+              )}
+              {formato === "carrossel" && !ctaFile && (
+                <p className="mt-1.5 text-xs text-neutral-500">
+                  Imagem de CTA não enviada — será reaproveitada a da capa.
+                </p>
+              )}
             </div>
           )}
 
-          {!report.qaPassed && (
-            <label className="mt-4 flex items-center gap-2 text-sm text-neutral-700">
+          <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-neutral-100 pt-4">
+            <label className="flex items-center gap-2 text-sm text-neutral-700">
               <input
                 type="checkbox"
-                checked={downloadOverride}
-                onChange={(e) => setDownloadOverride(e.target.checked)}
+                checked={confirmed}
+                onChange={(e) => setConfirmed(e.target.checked)}
+                className="h-4 w-4"
+                style={{ accentColor: AZUL }}
               />
-              Eu entendo os problemas, baixar mesmo assim.
+              Revisei e quero gerar
             </label>
+            <button
+              onClick={handleGenerate}
+              disabled={!confirmed || !capaFile || !copyText.trim() || loading}
+              className="ml-auto flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-medium text-white shadow-sm transition-opacity disabled:opacity-40"
+              style={{ backgroundColor: AZUL }}
+            >
+              {loading && (
+                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+              )}
+              {loading ? "Gerando..." : "Gerar artes"}
+            </button>
+          </div>
+          {!capaFile && (
+            <p className="mt-2 text-right text-xs text-amber-700">Envie a imagem de capa para continuar.</p>
           )}
-        </section>
-      )}
 
-      {/* 6. Download */}
-      {jobId && (
-        <section className="mb-8 rounded-2xl border border-neutral-200 bg-white p-6">
-          <button
-            onClick={handleDownloadZip}
-            disabled={!canDownload}
-            className="rounded-xl bg-neutral-900 px-5 py-2.5 text-sm font-medium text-white disabled:opacity-40"
-          >
-            Baixar ZIP
-          </button>
-          {!canDownload && (
-            <p className="mt-2 text-xs text-neutral-500">
-              O checklist de QA encontrou problemas. Marque a confirmação acima para baixar mesmo assim.
-            </p>
+          {error && (
+            <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+              {error}
+            </div>
           )}
         </section>
-      )}
+
+        {/* Right column: Step 2 + Step 3 stacked */}
+        <div className="flex flex-col gap-5">
+          {previews.length > 0 && (
+            <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+              <div className="mb-3 flex items-center gap-2">
+                <StepBadge n={2} />
+                <h2 className="text-sm font-medium text-neutral-800">Prévia</h2>
+                <span className="text-xs text-neutral-400">clique para ampliar</span>
+              </div>
+              <div className="grid grid-cols-4 gap-3 sm:grid-cols-5">
+                {previews.map((p) => (
+                  <button
+                    key={p.filename}
+                    onClick={() => setLightbox(p)}
+                    className="group overflow-hidden rounded-xl border border-neutral-200 text-left transition-shadow hover:shadow-md"
+                  >
+                    <img
+                      src={`data:image/png;base64,${p.base64}`}
+                      alt={p.filename}
+                      className="aspect-[4/5] w-full object-cover transition-transform group-hover:scale-[1.03]"
+                    />
+                    <div className="truncate bg-white px-2 py-1 text-[10px] text-neutral-400">{p.filename}</div>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {report && (
+            <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
+              <button
+                onClick={() => setQaExpanded(!showQaDetails)}
+                className="flex w-full items-center justify-between gap-3 p-5 text-left"
+              >
+                <div className="flex items-center gap-2">
+                  <StepBadge n={3} />
+                  <span
+                    className={`flex h-6 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium ${
+                      report.qaPassed ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"
+                    }`}
+                  >
+                    {report.qaPassed ? "✓ QA ok" : `⚠ ${qaFailCount} ${qaFailCount === 1 ? "problema" : "problemas"}`}
+                  </span>
+                </div>
+                <span className="text-xs text-neutral-400">{showQaDetails ? "ocultar detalhes ▲" : "ver detalhes ▼"}</span>
+              </button>
+
+              {showQaDetails && (
+                <div className="border-t border-neutral-100 px-5 pb-5 pt-4">
+                  <ul className="space-y-1.5 text-sm">
+                    {report.qa.map((q) => (
+                      <li key={q.id} className="flex items-start gap-2">
+                        <span className={q.pass ? "text-green-600" : "text-red-600"}>{q.pass ? "✓" : "✗"}</span>
+                        <span>
+                          {q.label}
+                          {q.detail && <span className="ml-1 text-neutral-500">— {q.detail}</span>}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+
+                  {report.warnings.length > 0 && (
+                    <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+                      <div className="mb-1 font-medium">Avisos</div>
+                      <ul className="list-disc pl-5">
+                        {report.warnings.map((w, i) => (
+                          <li key={i}>{w}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {!report.qaPassed && (
+                    <label className="mt-4 flex items-center gap-2 text-sm text-neutral-700">
+                      <input
+                        type="checkbox"
+                        checked={downloadOverride}
+                        onChange={(e) => setDownloadOverride(e.target.checked)}
+                        className="h-4 w-4"
+                        style={{ accentColor: AZUL }}
+                      />
+                      Eu entendo os problemas, baixar mesmo assim.
+                    </label>
+                  )}
+                </div>
+              )}
+
+              {jobId && (
+                <div className="flex items-center justify-between gap-3 border-t border-neutral-100 bg-neutral-50 px-5 py-4">
+                  <p className="text-xs text-neutral-500">
+                    {canDownload ? "Pronto para baixar." : "Resolva o checklist de QA ou confirme acima para baixar mesmo assim."}
+                  </p>
+                  <button
+                    onClick={handleDownloadZip}
+                    disabled={!canDownload}
+                    className="shrink-0 rounded-xl px-5 py-2.5 text-sm font-medium text-white shadow-sm disabled:opacity-40"
+                    style={{ backgroundColor: AZUL }}
+                  >
+                    Baixar ZIP
+                  </button>
+                </div>
+              )}
+            </section>
+          )}
+
+          {previews.length === 0 && !report && (
+            <section className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-neutral-200 bg-white/50 p-5 text-center text-sm text-neutral-400">
+              A prévia e o QA aparecem aqui depois de gerar as artes.
+            </section>
+          )}
+        </div>
+      </div>
 
       {lightbox && (
         <div
@@ -340,13 +400,24 @@ export default function Page() {
   );
 }
 
+function StepBadge(props: { n: number }) {
+  return (
+    <span
+      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold text-white"
+      style={{ backgroundColor: AZUL }}
+    >
+      {props.n}
+    </span>
+  );
+}
+
 function BulletSelect<T extends string>(props: {
   value: T;
   onChange: (v: T) => void;
   options: { value: T; label: string; description: string }[];
 }) {
   return (
-    <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
+    <div className="flex flex-1 gap-2">
       {props.options.map((opt) => {
         const active = props.value === opt.value;
         return (
@@ -354,20 +425,21 @@ function BulletSelect<T extends string>(props: {
             key={opt.value}
             type="button"
             onClick={() => props.onChange(opt.value)}
-            className={`flex flex-1 items-start gap-3 rounded-xl border p-3 text-left transition ${
-              active ? "border-neutral-900 bg-neutral-50" : "border-neutral-200 bg-white"
-            }`}
+            className="flex flex-1 items-start gap-2 rounded-xl border p-2.5 text-left transition-colors"
+            style={{
+              borderColor: active ? AZUL : "#E5E5E5",
+              backgroundColor: active ? "#F0F4F7" : "white",
+            }}
           >
             <span
-              className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
-                active ? "border-neutral-900" : "border-neutral-300"
-              }`}
+              className="mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border"
+              style={{ borderColor: active ? AZUL : "#D4D4D4" }}
             >
-              {active && <span className="h-2 w-2 rounded-full bg-neutral-900" />}
+              {active && <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: AZUL }} />}
             </span>
             <span>
-              <span className="block text-sm font-medium text-neutral-800">{opt.label}</span>
-              <span className="block text-xs text-neutral-500">{opt.description}</span>
+              <span className="block text-xs font-medium text-neutral-800">{opt.label}</span>
+              <span className="block text-[10px] text-neutral-500">{opt.description}</span>
             </span>
           </button>
         );
@@ -385,30 +457,50 @@ function ImageUploader(props: {
   inputRef: React.RefObject<HTMLInputElement>;
 }) {
   return (
-    <div>
-      <label className="mb-2 block text-sm text-neutral-600">{props.label}</label>
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+      {props.previewUrl ? (
+        <button
+          type="button"
+          onClick={() => props.inputRef.current?.click()}
+          className="group relative h-24 w-20 shrink-0 overflow-hidden rounded-lg border border-neutral-200"
+        >
+          <img src={props.previewUrl} alt="preview" className="h-full w-full object-cover" />
+          <div className="absolute inset-0 flex items-center justify-center bg-black/0 text-[10px] font-medium text-white opacity-0 transition-all group-hover:bg-black/40 group-hover:opacity-100">
+            trocar
+          </div>
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => props.inputRef.current?.click()}
+          className="flex h-24 w-20 shrink-0 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-neutral-300 text-neutral-400 hover:border-neutral-400 hover:text-neutral-500"
+        >
+          <span className="text-lg leading-none">+</span>
+          <span className="px-1 text-center text-[10px] leading-tight">{props.label}</span>
+        </button>
+      )}
       <input
         ref={props.inputRef}
         type="file"
         accept="image/*"
         onChange={(e) => props.onFile(e.target.files?.[0] || null)}
-        className="mb-3 block w-full text-sm"
+        className="hidden"
       />
-      {props.previewUrl && (
-        <div className="mb-3 overflow-hidden rounded-lg border border-neutral-200">
-          <img src={props.previewUrl} alt="preview" className="aspect-[4/5] w-full object-cover" />
+
+      <div className="flex-1">
+        <div className="mb-1.5 text-xs text-neutral-500">{props.label} — ponto focal</div>
+        <div className="grid w-20 grid-cols-3 gap-1">
+          {FOCAL_GRID.map((pos) => (
+            <button
+              key={pos}
+              type="button"
+              onClick={() => props.onFocal(pos)}
+              className="h-6 w-6 rounded transition-colors"
+              style={{ backgroundColor: props.focal === pos ? AZUL : "#E5E5E5" }}
+              aria-label={pos}
+            />
+          ))}
         </div>
-      )}
-      <div className="grid w-24 grid-cols-3 gap-1">
-        {FOCAL_GRID.map((pos) => (
-          <button
-            key={pos}
-            type="button"
-            onClick={() => props.onFocal(pos)}
-            className={`h-7 w-7 rounded ${props.focal === pos ? "bg-neutral-900" : "bg-neutral-200"}`}
-            aria-label={pos}
-          />
-        ))}
       </div>
     </div>
   );

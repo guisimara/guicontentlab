@@ -176,7 +176,7 @@ export async function renderJob(input: RenderInput): Promise<RenderOutcome> {
           fontChecksOk = false;
           throw new Error("Falha de verificação de fonte durante a renderização de um card de miolo.");
         }
-        const buffer = (await page.screenshot({ type: "png" })) as Buffer;
+        const buffer = Buffer.from(await page.screenshot({ type: "png" }));
         finalFiles.push({
           filename: "PENDING.png",
           kind: "miolo",
@@ -304,7 +304,7 @@ async function renderCapaCard(
   if (!c300 || !c700) {
     throw new Error(`Falha de verificação de fonte no card de ${variant}.`);
   }
-  const buffer = (await page.screenshot({ type: "png" })) as Buffer;
+  const buffer = Buffer.from(await page.screenshot({ type: "png" }));
   const emojisRemoved = card.paragraphs.reduce((sum, p) => sum + p.emojisRemoved, 0);
   const entry: CardReportEntry = {
     filename: variant === "capa" ? "PENDING-capa.png" : "PENDING-cta.png",
