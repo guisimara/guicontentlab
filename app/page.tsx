@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { CARD_DIVIDER_REGEX } from "@/lib/parser";
 
 type Focal =
   | "top-left" | "top-center" | "top-right"
@@ -17,7 +18,50 @@ const FOCAL_GRID: Focal[] = [
 
 const AZUL = "#0F3250";
 
-interface Preview { filename: string; base64: string }
+interface Preview { filename: string; base64: string; cardIndex: number | null }
+interface CardText { index: number; kind: "capa" | "miolo" | "cta"; text: string }
+
+const DEFAULT_TAG_PRESETS = ["Leia a legenda"]; // 1st preset always maps to the baked default asset (tagText === "")
+
+// Wraps/unwraps the **bold** markup (same syntax lib/highlight.ts already
+// understands) around the current selection — shared by the toolbar button
+// and the Ctrl/Cmd+B shortcut, for both the main copy box and the per-slide
+// editor.
+function toggleBoldAtSelection(
+  value: string,
+  start: number,
+  end: number
+): { value: string; start: number; end: number } {
+  const before = value.slice(0, start);
+  const selected = value.slice(start, end);
+  const after = value.slice(end);
+
+  if (before.endsWith("**") && after.startsWith("**")) {
+    return { value: before.slice(0, -2) + selected + after.slice(2), start: start - 2, end: end - 2 };
+  }
+  if (selected.length >= 4 && selected.startsWith("**") && selected.endsWith("**")) {
+    const inner = selected.slice(2, -2);
+    return { value: before + inner + after, start, end: start + inner.length };
+  }
+  const newValue = `${before}**${selected}**${after}`;
+  const newStart = start + 2;
+  const newEnd = selected.length === 0 ? newStart : end + 2;
+  return { value: newValue, start: newStart, end: newEnd };
+}
+
+// Rebuilds a full [CAPA]/[MIOLO]/[CTA] copy text from the structured card
+// list — used after an inline per-slide edit (pencil icon in the preview)
+// to feed a normal re-render through the same pipeline as the main textarea.
+function serializeCards(cards: CardText[]): string {
+  const capa = cards.filter((c) => c.kind === "capa");
+  const miolo = cards.filter((c) => c.kind === "miolo");
+  const cta = cards.filter((c) => c.kind === "cta");
+  const parts: string[] = [];
+  if (capa.length) parts.push(`[CAPA]\n${capa[0].text}`);
+  if (miolo.length) parts.push(`[MIOLO]\n${miolo.map((m) => m.text).join("\n\n---\n\n")}`);
+  if (cta.length) parts.push(`[CTA]\n${cta[0].text}`);
+  return parts.join("\n\n");
+}
 
 function preAnalyze(copyText: string) {
   const hasMarkers = /\[(CAPA|MIOLO|CTA)\]/i.test(copyText);
@@ -26,7 +70,7 @@ function preAnalyze(copyText: string) {
     .map((b) => b.trim())
     .filter(Boolean);
   const mioloBlocks = hasMarkers
-    ? blocks.slice(1, -1).flatMap((b) => b.split(/^\s*---\s*$/m)).filter((b) => b.trim())
+    ? blocks.slice(1, -1).flatMap((b) => b.split(CARD_DIVIDER_REGEX)).filter((b) => b.trim())
     : blocks.slice(1, -1);
   const longCards = mioloBlocks.filter((b) => b.length > 420).length;
   return {
@@ -35,6 +79,63 @@ function preAnalyze(copyText: string) {
     mioloCount: mioloBlocks.length,
     likelySplits: longCards,
   };
+}
+
+// Copy editor: a textarea with a small toolbar (Negrito) above it, plus the
+// Ctrl/Cmd+B keyboard shortcut — both apply the same **markup** the render
+// pipeline already understands (lib/highlight.ts manual override). Reused
+// for both the main copy box and the per-slide editor opened from the pencil
+// icon in the preview.
+function TextEditor(props: {
+  value: string;
+  onChange: (v: string) => void;
+  rows: number;
+  placeholder?: string;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  function applyBold() {
+    const el = ref.current;
+    if (!el) return;
+    const { value, start, end } = toggleBoldAtSelection(props.value, el.selectionStart, el.selectionEnd);
+    props.onChange(value);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(start, end);
+    });
+  }
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "b") {
+      e.preventDefault();
+      applyBold();
+    }
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-1.5 rounded-t-xl border border-b-0 border-neutral-200 bg-neutral-100 px-2.5 py-1.5">
+        <button
+          type="button"
+          onClick={applyBold}
+          title="Negrito (Ctrl/Cmd+B)"
+          className="flex h-6 w-6 items-center justify-center rounded text-xs font-bold text-neutral-700 hover:bg-neutral-200"
+        >
+          B
+        </button>
+        <span className="text-[10px] text-neutral-400">Selecione o texto e use Ctrl/Cmd+B para negrito</span>
+      </div>
+      <textarea
+        ref={ref}
+        value={props.value}
+        onChange={(e) => props.onChange(e.target.value)}
+        onKeyDown={onKeyDown}
+        rows={props.rows}
+        placeholder={props.placeholder}
+        className="w-full resize-y rounded-b-xl border border-neutral-200 bg-neutral-50 p-3.5 text-sm leading-relaxed outline-none transition-colors focus:border-neutral-400"
+      />
+    </div>
+  );
 }
 
 export default function Page() {
@@ -47,13 +148,19 @@ export default function Page() {
   const [ctaFocal, setCtaFocal] = useState<Focal>("center");
   const [formato, setFormato] = useState<Formato>("carrossel");
   const [showReadCaptionTag, setShowReadCaptionTag] = useState(false);
+  const [tagText, setTagText] = useState(""); // "" = default baked "Leia a legenda" asset
+  const [tagPresets, setTagPresets] = useState<string[]>(DEFAULT_TAG_PRESETS);
+  const [newTagInput, setNewTagInput] = useState("");
 
   const [confirmed, setConfirmed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [previews, setPreviews] = useState<Preview[]>([]);
+  const [cardsText, setCardsText] = useState<CardText[]>([]);
   const [jobId, setJobId] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<Preview | null>(null);
+  const [editingCardIndex, setEditingCardIndex] = useState<number | null>(null);
+  const [editingDraft, setEditingDraft] = useState("");
 
   const [driveConnected, setDriveConnected] = useState(false);
   const [driveUploading, setDriveUploading] = useState(false);
@@ -64,6 +171,19 @@ export default function Page() {
   const ctaInputRef = useRef<HTMLInputElement>(null);
 
   const analysis = useMemo(() => (copyText.trim() ? preAnalyze(copyText) : null), [copyText]);
+
+  // Custom tag texts the user has typed before ("Com tag" bar) are kept in
+  // localStorage so the bar of options grows over time instead of resetting
+  // every reload. The first preset always maps to the original baked asset.
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("clg_tag_presets");
+      if (stored) {
+        const arr = JSON.parse(stored);
+        if (Array.isArray(arr) && arr.length) setTagPresets(arr);
+      }
+    } catch {}
+  }, []);
 
   // Handles the round-trip back from Google's OAuth consent screen: if the
   // user had clicked "Enviar para o Drive" before being connected, we stash
@@ -144,18 +264,23 @@ export default function Page() {
     }
   }
 
-  async function handleGenerate() {
+  // `overrideCopyText`, when passed, is used instead of the `copyText` state
+  // — needed when regenerating right after a per-slide edit (pencil icon),
+  // since the state update from setCopyText() wouldn't be visible yet here.
+  async function handleGenerate(overrideCopyText?: string) {
+    const textToSend = overrideCopyText ?? copyText;
     setError(null);
     setLoading(true);
     setDriveError(null);
     setDriveFolderUrl(null);
     try {
       const fd = new FormData();
-      fd.set("copyText", copyText);
+      fd.set("copyText", textToSend);
       fd.set("capaFocalPoint", capaFocal);
       fd.set("ctaFocalPoint", ctaFocal);
       fd.set("format", formato);
       fd.set("showReadCaptionTag", String(showReadCaptionTag));
+      fd.set("tagText", tagText);
       if (capaFile) fd.set("capaImage", capaFile);
       if (ctaFile && formato === "carrossel") fd.set("ctaImage", ctaFile);
 
@@ -167,12 +292,43 @@ export default function Page() {
         return;
       }
       setPreviews(data.previews);
+      setCardsText(data.cardsText || []);
       setJobId(data.jobId);
     } catch (err: any) {
       setError(`Erro de conexão: ${err?.message || String(err)}`);
     } finally {
       setLoading(false);
     }
+  }
+
+  function openSlideEditor(cardIndex: number) {
+    const card = cardsText.find((c) => c.index === cardIndex);
+    setEditingDraft(card?.text ?? "");
+    setEditingCardIndex(cardIndex);
+  }
+
+  function saveSlideEdit() {
+    if (editingCardIndex === null) return;
+    const updated = cardsText.map((c) => (c.index === editingCardIndex ? { ...c, text: editingDraft } : c));
+    setCardsText(updated);
+    const newCopyText = serializeCards(updated);
+    setCopyText(newCopyText);
+    setEditingCardIndex(null);
+    void handleGenerate(newCopyText);
+  }
+
+  function addTagPreset() {
+    const t = newTagInput.trim();
+    if (!t) return;
+    if (!tagPresets.includes(t)) {
+      const updated = [...tagPresets, t];
+      setTagPresets(updated);
+      try {
+        localStorage.setItem("clg_tag_presets", JSON.stringify(updated));
+      } catch {}
+    }
+    setTagText(t === "Leia a legenda" ? "" : t);
+    setNewTagInput("");
   }
 
   async function handleDownloadZip() {
@@ -218,21 +374,67 @@ export default function Page() {
               onChange={(v) => setShowReadCaptionTag(v === "com")}
               options={[
                 { value: "sem", label: "Sem tag", description: '"Leia a legenda"' },
-                { value: "com", label: "Com tag", description: "Placeholder" },
+                { value: "com", label: "Com tag", description: "Escolha o texto" },
               ]}
             />
           </div>
 
-          <textarea
+          {showReadCaptionTag && (
+            <div className="mb-4 flex flex-wrap items-center gap-1.5 rounded-xl bg-neutral-50 p-2.5">
+              {tagPresets.map((preset) => {
+                const presetValue = preset === "Leia a legenda" ? "" : preset;
+                const active = presetValue === tagText;
+                return (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => setTagText(presetValue)}
+                    className="rounded-full border px-3 py-1 text-xs transition-colors"
+                    style={{
+                      borderColor: active ? AZUL : "#E5E5E5",
+                      backgroundColor: active ? "#F0F4F7" : "white",
+                      color: active ? AZUL : "#525252",
+                    }}
+                  >
+                    {preset}
+                  </button>
+                );
+              })}
+              <div className="flex items-center gap-1">
+                <input
+                  value={newTagInput}
+                  onChange={(e) => setNewTagInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addTagPreset();
+                    }
+                  }}
+                  placeholder="Novo texto..."
+                  className="w-28 rounded-full border border-neutral-200 bg-white px-3 py-1 text-xs outline-none focus:border-neutral-400"
+                />
+                <button
+                  type="button"
+                  onClick={addTagPreset}
+                  title="Adicionar à barra"
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-sm leading-none text-white"
+                  style={{ backgroundColor: AZUL }}
+                >
+                  +
+                </button>
+              </div>
+            </div>
+          )}
+
+          <TextEditor
             value={copyText}
-            onChange={(e) => setCopyText(e.target.value)}
+            onChange={setCopyText}
             rows={9}
             placeholder={
               formato === "estatico"
                 ? "[CAPA]\nFrase da capa aqui"
                 : "[CAPA]\nFrase da capa aqui\n\n[MIOLO]\nTexto do card 2\n\n---\n\nTexto do card 3\n\n[CTA]\nFrase do CTA aqui"
             }
-            className="w-full resize-y rounded-xl border border-neutral-200 bg-neutral-50 p-3.5 text-sm leading-relaxed outline-none transition-colors focus:border-neutral-400"
           />
 
           <div className="mt-4 grid grid-cols-2 gap-3">
@@ -295,7 +497,7 @@ export default function Page() {
               Revisei e quero gerar
             </label>
             <button
-              onClick={handleGenerate}
+              onClick={() => handleGenerate()}
               disabled={!confirmed || !capaFile || !copyText.trim() || loading}
               className="ml-auto flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-medium text-white shadow-sm transition-opacity disabled:opacity-40"
               style={{ backgroundColor: AZUL }}
@@ -328,18 +530,29 @@ export default function Page() {
               </div>
               <div className="grid grid-cols-4 gap-3 sm:grid-cols-5">
                 {previews.map((p) => (
-                  <button
-                    key={p.filename}
-                    onClick={() => setLightbox(p)}
-                    className="group overflow-hidden rounded-xl border border-neutral-200 text-left transition-shadow hover:shadow-md"
-                  >
-                    <img
-                      src={`data:image/png;base64,${p.base64}`}
-                      alt={p.filename}
-                      className="aspect-[4/5] w-full object-cover transition-transform group-hover:scale-[1.03]"
-                    />
-                    <div className="truncate bg-white px-2 py-1 text-[10px] text-neutral-400">{p.filename}</div>
-                  </button>
+                  <div key={p.filename} className="group relative overflow-hidden rounded-xl border border-neutral-200 transition-shadow hover:shadow-md">
+                    <button type="button" onClick={() => setLightbox(p)} className="block w-full text-left">
+                      <img
+                        src={`data:image/png;base64,${p.base64}`}
+                        alt={p.filename}
+                        className="aspect-[4/5] w-full object-cover transition-transform group-hover:scale-[1.03]"
+                      />
+                      <div className="truncate bg-white px-2 py-1 text-[10px] text-neutral-400">{p.filename}</div>
+                    </button>
+                    {p.cardIndex !== null && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openSlideEditor(p.cardIndex!);
+                        }}
+                        title="Editar texto deste slide"
+                        className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-white/90 text-xs opacity-0 shadow-sm transition-opacity group-hover:opacity-100"
+                      >
+                        ✏️
+                      </button>
+                    )}
+                  </div>
                 ))}
               </div>
             </section>
@@ -413,6 +626,42 @@ export default function Page() {
             alt={lightbox.filename}
             className="max-h-full max-w-full rounded-lg"
           />
+        </div>
+      )}
+
+      {editingCardIndex !== null && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6"
+          onClick={() => setEditingCardIndex(null)}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="mb-3 text-sm font-medium text-neutral-800">Editar texto do slide</h3>
+            <TextEditor value={editingDraft} onChange={setEditingDraft} rows={7} />
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setEditingCardIndex(null)}
+                className="rounded-xl px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-100"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={saveSlideEdit}
+                disabled={loading}
+                className="flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium text-white shadow-sm disabled:opacity-50"
+                style={{ backgroundColor: AZUL }}
+              >
+                {loading && (
+                  <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                )}
+                {loading ? "Gerando..." : "Salvar e gerar de novo"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

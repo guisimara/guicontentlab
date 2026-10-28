@@ -72,10 +72,10 @@ function tokenize(text: string): Token[] {
 }
 
 // Applies manual **word** markup: returns html with <b class="azul"> or
-// <b class="w700"> wrapping, and strips the ** markers.
+// <b class="w600"> wrapping, and strips the ** markers.
 function applyManualMarkup(text: string, azulColor: boolean): { html: string; count: number } {
   let count = 0;
-  const cls = azulColor ? "azul" : "w700";
+  const cls = azulColor ? "azul" : "w600";
   const html = escapeHtml(text).replace(/\*\*([^*]+)\*\*/g, (_m, inner) => {
     count++;
     return `<b class="${cls}">${inner}</b>`;
@@ -229,7 +229,7 @@ export function highlightCapaCta(text: string, opts: { manualOverride: boolean }
     if (isLinking) {
       html += `<span class="w300">${escapeHtml(t.text)}</span>`;
     } else {
-      html += `<b class="w700">${escapeHtml(t.text)}</b>`;
+      html += `<b class="w600">${escapeHtml(t.text)}</b>`;
       applied.push({ word: t.text, type: "fixed-list" });
     }
   }

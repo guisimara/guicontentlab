@@ -14,6 +14,7 @@ export async function POST(req: NextRequest) {
     const jobId = String(form.get("jobId") || randomUUID());
     const format = String(form.get("format") || "carrossel") === "estatico" ? "estatico" : "carrossel";
     const showReadCaptionTag = String(form.get("showReadCaptionTag") || "false") === "true";
+    const tagText = String(form.get("tagText") || "").trim() || undefined;
 
     const capaFile = form.get("capaImage") as File | null;
     const ctaFile = form.get("ctaImage") as File | null;
@@ -37,6 +38,7 @@ export async function POST(req: NextRequest) {
       ctaFocalPoint,
       format,
       showReadCaptionTag,
+      tagText,
     });
 
     if (outcome.fatalError) {
@@ -47,6 +49,7 @@ export async function POST(req: NextRequest) {
       jobId: outcome.jobId,
       report: outcome.report,
       previews: outcome.previews,
+      cardsText: outcome.cardsText,
     });
   } catch (err: any) {
     return NextResponse.json({ error: `Erro inesperado: ${err?.message || String(err)}` }, { status: 500 });

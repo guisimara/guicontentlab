@@ -18,13 +18,18 @@ export interface RenderInput {
   capaFocalPoint: string;
   ctaFocalPoint: string;
   format: "carrossel" | "estatico"; // estatico = only the capa card is rendered
-  showReadCaptionTag: boolean; // capa-only "leia a legenda" tag
+  showReadCaptionTag: boolean; // capa-only tag ("leia a legenda" or a custom text)
+  tagText?: string; // custom text for the tag pill; defaults to "Leia a legenda" asset when omitted
 }
 
 export interface RenderOutcome {
   jobId: string;
   report: JobReport;
-  previews: { filename: string; base64: string }[];
+  previews: { filename: string; base64: string; cardIndex: number | null }[];
+  // One entry per RawCard produced by parseCopy(copyText), in order — lets
+  // the client show/edit the exact source text behind any rendered preview
+  // via `previews[i].cardIndex` without having to re-parse copyText itself.
+  cardsText: { index: number; kind: RawCard["kind"]; text: string }[];
   fatalError?: string;
 }
 
@@ -75,24 +80,21 @@ export async function renderJob(input: RenderInput): Promise<RenderOutcome> {
     warnings.push("Imagem de CTA não enviada — a imagem da capa foi reutilizada.");
   }
 
+  // Qualquer imagem é aceita — abaixo de 1080px no lado menor ela pode ficar
+  // borrada/pixelada no card final, mas isso não bloqueia a geração; o
+  // usuário decide se quer trocar a imagem ao ver o resultado.
   const capaRes = await checkImageResolution(input.capaImageBase64);
   const ctaRes = isEstatico ? { ok: true, width: 0, height: 0 } : await checkImageResolution(ctaImage!);
 
   if (!capaRes.ok) {
-    return {
-      jobId: input.jobId,
-      report: emptyReport(input.jobId, warnings),
-      previews: [],
-      fatalError: `Imagem da capa tem lado menor de ${Math.min(capaRes.width, capaRes.height)}px — mínimo exigido é 1080px. Envie uma imagem maior.`,
-    };
+    warnings.push(
+      `Imagem da capa tem lado menor de ${Math.min(capaRes.width, capaRes.height)}px (abaixo do ideal de 1080px) — pode ficar com qualidade reduzida.`
+    );
   }
   if (!isEstatico && !ctaRes.ok) {
-    return {
-      jobId: input.jobId,
-      report: emptyReport(input.jobId, warnings),
-      previews: [],
-      fatalError: `Imagem do CTA tem lado menor de ${Math.min(ctaRes.width, ctaRes.height)}px — mínimo exigido é 1080px. Envie uma imagem maior.`,
-    };
+    warnings.push(
+      `Imagem do CTA tem lado menor de ${Math.min(ctaRes.width, ctaRes.height)}px (abaixo do ideal de 1080px) — pode ficar com qualidade reduzida.`
+    );
   }
 
   let browser: Browser | null = null;
@@ -125,15 +127,17 @@ export async function renderJob(input: RenderInput): Promise<RenderOutcome> {
         jobId: input.jobId,
         report: emptyReport(input.jobId, warnings),
         previews: [],
+        cardsText: [],
         fatalError:
           "Falha ao carregar a fonte Poppins (300/700) embutida. Abortando job — nunca usamos fonte de sistema como fallback.",
       };
     }
 
-    const finalFiles: { filename: string; kind: "capa" | "miolo" | "cta"; buffer: Buffer }[] = [];
+    const finalFiles: { filename: string; kind: "capa" | "miolo" | "cta"; buffer: Buffer; cardIndex: number | null }[] = [];
 
     // --- Capa ---
-    const capaCard = cards.find((c) => c.kind === "capa");
+    const capaCardIndex = cards.findIndex((c) => c.kind === "capa");
+    const capaCard = capaCardIndex >= 0 ? cards[capaCardIndex] : undefined;
     if (capaCard) {
       const { buffer, entry } = await renderCapaCard(
         page,
@@ -141,9 +145,10 @@ export async function renderJob(input: RenderInput): Promise<RenderOutcome> {
         input.capaImageBase64,
         input.capaFocalPoint,
         "capa",
-        input.showReadCaptionTag
+        input.showReadCaptionTag,
+        input.tagText
       );
-      finalFiles.push({ filename: "PENDING-capa.png", kind: "capa", buffer });
+      finalFiles.push({ filename: "PENDING-capa.png", kind: "capa", buffer, cardIndex: capaCardIndex });
       cardReports.push(entry);
     } else {
       warnings.push("Sem card de capa — nenhuma imagem de capa foi renderizada.");
@@ -152,6 +157,7 @@ export async function renderJob(input: RenderInput): Promise<RenderOutcome> {
     // --- Miolo (with splitting) --- (pulado no formato Estático)
     const mioloCards = isEstatico ? [] : cards.filter((c) => c.kind === "miolo");
     for (const mc of mioloCards) {
+      const mcIndex = cards.indexOf(mc);
       const highlightsByIndex: { word: string; type: string }[][] = [];
       const units: ParagraphUnit[] = mc.paragraphs.map((p, idx) => {
         const hl = highlightMioloParagraph(p.text, { manualOverride: mc.manualMarkupUsed });
@@ -181,6 +187,7 @@ export async function renderJob(input: RenderInput): Promise<RenderOutcome> {
           filename: "PENDING.png",
           kind: "miolo",
           buffer,
+          cardIndex: mcIndex,
         });
         const cardHighlights = r.sourceIndices.flatMap((i) => highlightsByIndex[i] || []);
         finalMioloHighlightCounts.push(cardHighlights.length);
@@ -200,10 +207,11 @@ export async function renderJob(input: RenderInput): Promise<RenderOutcome> {
     }
 
     // --- CTA --- (pulado no formato Estático)
-    const ctaCard = isEstatico ? undefined : cards.find((c) => c.kind === "cta");
+    const ctaCardIndex = isEstatico ? -1 : cards.findIndex((c) => c.kind === "cta");
+    const ctaCard = ctaCardIndex >= 0 ? cards[ctaCardIndex] : undefined;
     if (ctaCard) {
       const { buffer, entry } = await renderCapaCard(page, ctaCard, ctaImage!, input.ctaFocalPoint, "cta");
-      finalFiles.push({ filename: "PENDING-cta.png", kind: "cta", buffer });
+      finalFiles.push({ filename: "PENDING-cta.png", kind: "cta", buffer, cardIndex: ctaCardIndex });
       cardReports.push(entry);
     } else if (!isEstatico) {
       warnings.push("Sem card de CTA — nenhuma imagem de CTA foi renderizada.");
@@ -213,7 +221,7 @@ export async function renderJob(input: RenderInput): Promise<RenderOutcome> {
     browser = null;
 
     // Renumber final sequence with no gaps.
-    const namedFiles: { filename: string; kind: "capa" | "miolo" | "cta"; buffer: Buffer }[] = [];
+    const namedFiles: { filename: string; kind: "capa" | "miolo" | "cta"; buffer: Buffer; cardIndex: number | null }[] = [];
     const total = finalFiles.length;
     finalFiles.forEach((f, idx) => {
       let filename: string;
@@ -231,6 +239,7 @@ export async function renderJob(input: RenderInput): Promise<RenderOutcome> {
           jobId: input.jobId,
           report: emptyReport(input.jobId, warnings),
           previews: [],
+        cardsText: [],
           fatalError: `PNG ${f.filename} saiu com dimensões ${meta.width}x${meta.height}, esperado 1080x1350. Job abortado.`,
         };
       }
@@ -267,15 +276,23 @@ export async function renderJob(input: RenderInput): Promise<RenderOutcome> {
     const previews = namedFiles.map((f) => ({
       filename: f.filename,
       base64: f.buffer.toString("base64"),
+      cardIndex: f.cardIndex,
     }));
 
-    return { jobId: input.jobId, report, previews };
+    const cardsText = cards.map((c, index) => ({
+      index,
+      kind: c.kind,
+      text: c.paragraphs.map((p) => p.text).join("\n\n"),
+    }));
+
+    return { jobId: input.jobId, report, previews, cardsText };
   } catch (err: any) {
     if (browser) await browser.close();
     return {
       jobId: input.jobId,
       report: emptyReport(input.jobId, warnings),
       previews: [],
+      cardsText: [],
       fatalError: `Erro durante a renderização: ${err?.message || String(err)}`,
     };
   }
@@ -287,7 +304,8 @@ async function renderCapaCard(
   imageDataUri: string,
   focalPoint: string,
   variant: "capa" | "cta",
-  showReadCaptionTag = false
+  showReadCaptionTag = false,
+  tagText?: string
 ): Promise<{ buffer: Buffer; entry: CardReportEntry }> {
   const fullText = card.paragraphs.map((p) => p.text).join(" ");
   const hl = highlightCapaCta(fullText, { manualOverride: card.manualMarkupUsed });
@@ -298,6 +316,7 @@ async function renderCapaCard(
     focalPoint: fp,
     variant,
     showReadCaptionTag,
+    tagText,
   });
   await page.setContent(html, { waitUntil: "domcontentloaded" });
   const { ok300: c300, ok700: c700 } = await ensureFontsLoaded(page);

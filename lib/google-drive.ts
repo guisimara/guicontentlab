@@ -13,11 +13,15 @@ import { readdir } from "node:fs/promises";
 const DATA_DIR = path.join(process.cwd(), ".data");
 const TOKEN_PATH = path.join(DATA_DIR, "google-tokens.json");
 
-// drive.file: the app can only see/create files and folders it created
-// itself (or that the user explicitly opened via a picker). This is the
-// minimal scope that still lets us create a folder and upload images into
-// it — no access to the rest of the user's Drive.
-const SCOPES = ["https://www.googleapis.com/auth/drive.file"];
+// Full "drive" scope: needed because the destination folder is configured
+// via GOOGLE_DRIVE_ROOT_FOLDER_ID to an existing folder created manually by
+// the user (not by this app) — the narrower drive.file scope can only see
+// files/folders the app itself created, so it can't list or write inside a
+// pre-existing folder. This grants the app read/write access to the user's
+// whole Drive; if you ever want to go back to the narrower scope, point
+// GOOGLE_DRIVE_ROOT_FOLDER_ID at nothing and let the app manage its own
+// "CONTENT LAB | Gui Simara" folder again.
+const SCOPES = ["https://www.googleapis.com/auth/drive"];
 
 interface StoredTokens {
   access_token?: string | null;
@@ -116,6 +120,15 @@ function getAuthedClient() {
 }
 
 async function ensureRootFolder(drive: ReturnType<typeof google.drive>): Promise<string> {
+  // If the user pointed GOOGLE_DRIVE_ROOT_FOLDER_ID at an existing Drive
+  // folder, use it as-is instead of the app's auto-created one. Note: with
+  // the drive.file scope, this only works if that folder was itself created
+  // by this app, or was explicitly opened with it via a picker — a folder
+  // created manually in Drive's own UI is invisible to this scope. See
+  // .env.local.example for details.
+  const configuredId = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID;
+  if (configuredId) return configuredId;
+
   const stored = readStoredTokens() || {};
   if (stored.rootFolderId) {
     // Confirm it still exists (user may have deleted it manually).
@@ -138,6 +151,42 @@ async function ensureRootFolder(drive: ReturnType<typeof google.drive>): Promise
   return rootFolderId;
 }
 
+// Looks at the immediate subfolders of `parentFolderId`, keeps only the ones
+// named as a plain integer ("1", "01", "012", "15", ...), and returns the
+// next number in that sequence as a string. Starts at "1" if none exist yet.
+// Preserves the digit-count/leading-zero style of the highest existing
+// folder (e.g. if the max is "012", the next one is "013"; if the max is
+// "15", the next one is "16") to match whatever manual convention is
+// already in use in that folder.
+async function getNextSequentialFolderName(
+  drive: ReturnType<typeof google.drive>,
+  parentFolderId: string
+): Promise<string> {
+  let max = 0;
+  let maxNameLength = 0;
+  let pageToken: string | undefined;
+  do {
+    const res = await drive.files.list({
+      q: `'${parentFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+      fields: "nextPageToken, files(id, name)",
+      pageSize: 1000,
+      pageToken,
+    });
+    for (const f of res.data.files || []) {
+      const match = /^(\d+)$/.exec((f.name || "").trim());
+      if (match) {
+        const n = parseInt(match[1], 10);
+        if (n > max) {
+          max = n;
+          maxNameLength = match[1].length;
+        }
+      }
+    }
+    pageToken = res.data.nextPageToken || undefined;
+  } while (pageToken);
+  return String(max + 1).padStart(maxNameLength, "0");
+}
+
 const MIME_BY_EXT: Record<string, string> = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
@@ -150,8 +199,9 @@ export interface DriveUploadResult {
   uploadedFiles: string[];
 }
 
-// Creates a job-specific subfolder inside the app's own root Drive folder
-// and uploads every rendered file from /tmp/jobs/{jobId} into it.
+// Creates a job-specific subfolder — named with the next sequential number
+// (1, 2, 3, ...) relative to whatever already exists inside the root Drive
+// folder — and uploads every rendered file from /tmp/jobs/{jobId} into it.
 export async function uploadJobToDrive(jobId: string): Promise<DriveUploadResult> {
   const client = getAuthedClient();
   const drive = google.drive({ version: "v3", auth: client });
@@ -164,10 +214,10 @@ export async function uploadJobToDrive(jobId: string): Promise<DriveUploadResult
     throw new Error("Nenhum arquivo encontrado para este job.");
   }
 
-  const stamp = new Date().toISOString().slice(0, 10);
+  const folderName = await getNextSequentialFolderName(drive, rootFolderId);
   const folderRes = await drive.files.create({
     requestBody: {
-      name: `${stamp} - ${jobId.slice(0, 8)}`,
+      name: folderName,
       mimeType: "application/vnd.google-apps.folder",
       parents: [rootFolderId],
     },

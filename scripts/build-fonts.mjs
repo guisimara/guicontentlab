@@ -1,4 +1,4 @@
-// Reads @fontsource/poppins woff2 files (300 and 700, latin, normal) and
+// Reads @fontsource/poppins woff2 files (300, 600 and 700, latin, normal) and
 // writes lib/fonts.generated.ts exporting a CSS string with the fonts
 // embedded as base64 data URIs. This guarantees the exact same font bytes
 // are used for every render, with no dependency on system fonts.
@@ -23,6 +23,7 @@ function b64(weight) {
 }
 
 const light = b64(300);
+const semibold = b64(600);
 const bold = b64(700);
 
 const css = `
@@ -31,6 +32,13 @@ const css = `
   font-style: normal;
   font-weight: 300;
   src: url(data:font/woff2;base64,${light}) format('woff2');
+  font-display: block;
+}
+@font-face {
+  font-family: 'Poppins';
+  font-style: normal;
+  font-weight: 600;
+  src: url(data:font/woff2;base64,${semibold}) format('woff2');
   font-display: block;
 }
 @font-face {

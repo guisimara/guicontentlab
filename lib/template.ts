@@ -34,7 +34,7 @@ function baseCss(): string {
     body { font-family: 'Poppins', sans-serif; position: relative; }
     .card { width: ${CANVAS_W}px; height: ${CANVAS_H}px; position: relative; }
     .azul { color: ${TOKENS.azul}; font-weight: 700; }
-    .w700 { font-weight: 700; }
+    .w600 { font-weight: 600; } /* capa/cta "bold" = Poppins semibold */
     .w300 { font-weight: 300; }
   `;
 }
@@ -66,7 +66,7 @@ export function mioloFooterCss(): string {
 export function capaFooter(): string {
   return `
   <div class="footer-capa">
-    <div class="handle">@guisimara</div>
+    <div class="handle"><span class="w300">@gui</span><span class="w600">simara</span></div>
   </div>`;
 }
 
@@ -74,20 +74,34 @@ export function capaFooterCss(): string {
   return `
     .footer-capa .handle {
       position: absolute; top: 1210px; left: 0; width: 100%;
-      text-align: center; font-size: 18px; font-weight: 300; color: ${TOKENS.branco};
+      text-align: center; font-size: 21px; color: ${TOKENS.branco};
       text-shadow: 0 2px 8px rgba(0,0,0,0.5);
     }
   `;
 }
 
-// "Leia a legenda" tag — final asset, img/slug-legenda.png (270x61),
-// loaded as a data URI via scripts/build-assets.mjs. Positioned per spec:
-// the tag's bottom edge sits at 193px from the canvas bottom, and the whole
-// tag must stay within the 59px-tall zone between 252px and 193px from the
-// bottom. Horizontal placement is not specified by the brief; assumed
-// centered within the same 105px side margins used for the headline
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// "Leia a legenda" tag — default is the final baked asset, img/slug-legenda.png
+// (270x61), loaded as a data URI via scripts/build-assets.mjs. When a custom
+// `tagText` is passed (the "Com tag" text bar, see app/page.tsx), a CSS pill
+// matching the same look (gradient + rounded) is rendered instead, so any
+// text can be used there — not just the baked-in default string. Positioned
+// per spec: the tag's bottom edge sits at 193px from the canvas bottom, and
+// the whole tag must stay within the 59px-tall zone between 252px and 193px
+// from the bottom. Horizontal placement is not specified by the brief;
+// assumed centered within the same 105px side margins used for the headline
 // (documented in DECISIONS.md).
-export function readCaptionTag(): string {
+export function readCaptionTag(tagText?: string): string {
+  if (tagText && tagText.trim()) {
+    return `<div class="read-caption-tag"><span class="read-caption-tag-pill">${escapeHtml(tagText.trim())}</span></div>`;
+  }
   return `<div class="read-caption-tag"><img class="read-caption-tag-img" src="${READ_CAPTION_TAG_DATA_URI}" /></div>`;
 }
 
@@ -99,6 +113,14 @@ export function readCaptionTagCss(): string {
     }
     .read-caption-tag-img {
       height: 59px; width: auto;
+    }
+    .read-caption-tag-pill {
+      display: inline-flex; align-items: center; justify-content: center;
+      height: 59px; max-width: 100%; padding: 0 30px; border-radius: 9999px;
+      background: linear-gradient(180deg, #91A6BA 0%, #3C5872 45%, #15263B 100%);
+      box-shadow: 0 6px 14px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.35);
+      color: ${TOKENS.branco}; font-weight: 600; font-size: 26px; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis;
     }
   `;
 }
@@ -150,6 +172,7 @@ export interface CapaCardOptions {
   focalPoint: string; // key of FOCAL_POINT_MAP
   variant: "capa" | "cta";
   showReadCaptionTag?: boolean; // capa only — ignored for cta
+  tagText?: string; // custom text for the tag pill; omitted = default "Leia a legenda" asset
 }
 
 export function renderCapaTemplate(opts: CapaCardOptions): string {
@@ -175,10 +198,11 @@ ${readCaptionTagCss()}
 }
 .headline {
   color: ${TOKENS.branco};
-  font-size: 75px;
-  line-height: 1.03;
-  letter-spacing: -0.5px;
+  font-size: ${opts.variant === "cta" ? 50 : 70}px;
+  line-height: 1.15;
+  letter-spacing: -0.041em; /* "-41" tracking (Adobe/Figma-style units: 1/1000 em) */
   font-weight: 300;
+  text-align: center;
 }
 </style>
 </head>
@@ -187,7 +211,7 @@ ${readCaptionTagCss()}
     <img class="photo" src="${opts.imageDataUri}" />
     <img class="mask" src="${CAPA_MASK_DATA_URI}" />
     <div class="headline-wrap"><div class="headline" id="headline">${opts.headlineHtml}</div></div>
-    ${showTag ? readCaptionTag() : ""}
+    ${showTag ? readCaptionTag(opts.tagText) : ""}
     ${capaFooter()}
   </div>
 </body></html>`;

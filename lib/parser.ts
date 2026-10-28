@@ -50,6 +50,53 @@ function hasManualMarkup(raw: string): boolean {
   return /\*\*[^*]+\*\*/.test(raw);
 }
 
+// One of the carousel-section words: slide, card, lâmina/lamina, or cta —
+// singular or plural. Also allows several of these joined by "/" on the
+// same line (e.g. "Slide 1 / lâmina 1 / card 1"), since that is how some
+// users label each card in their raw copy.
+const SECTION_WORD = "(?:slide|card|l[âa]mina|cta)s?";
+
+// "Pure" label: one or more SECTION_WORDs (each with an optional number)
+// joined only by "/", filling the entire line with nothing else — e.g.
+// "Slide 2", "CTA", "Slide 1 / lâmina 1 / card 1".
+const MULTI_LABEL_SRC = `${SECTION_WORD}[ \\t]*\\d*[ \\t]*[:.\\-]?(?:[ \\t]*/[ \\t]*${SECTION_WORD}[ \\t]*\\d*[ \\t]*[:.\\-]?)*`;
+
+// "Role" label: a SECTION_WORD immediately followed by a number, then any
+// free text for the rest of the line — e.g. "Slide 1 - CAPA",
+// "Slide 9 - Corpo", "Card 5 - qualquer coisa". The number is required
+// here (unlike MULTI_LABEL_SRC) so that genuine prose starting with one of
+// these words but with no following number — e.g. "Slides do carrossel
+// são ótimos" — is never mistaken for a label.
+const ROLE_LABEL_SRC = `${SECTION_WORD}[ \\t]*\\d+.*`;
+
+const SECTION_LABEL_SRC = `(?:${MULTI_LABEL_SRC}|${ROLE_LABEL_SRC})`;
+
+// A line that is ONLY "---", or ONLY one/more of the carousel-section words
+// above, is treated as a card divider inside a [MIOLO] block — same role as
+// "---" always had. The match is deliberately whole-line-only (not "starts
+// with") so prose that happens to contain these words (e.g. "Cardápio do
+// dia", "veja o próximo slide") is never mistaken for a divider.
+export const CARD_DIVIDER_REGEX = new RegExp(`^[ \\t]*(?:-{3,}|${SECTION_LABEL_SRC})[ \\t]*$`, "im");
+
+// Same as CARD_DIVIDER_REGEX but restricted to the section-word form (no
+// bare "---"). Used to detect whether the no-markers input uses the
+// "labeled section" style (see parseCopy below) — e.g.
+//   Slide 1 / lâmina 1 / card 1
+//
+//   texto do primeiro slide
+//
+//   CTA
+//
+//   frase do cta
+// — where each label line marks the start of a new card and is itself
+// stripped out of the rendered text (never leaked into a card body).
+const SECTION_LABEL_REGEX = new RegExp(`^[ \\t]*${SECTION_LABEL_SRC}[ \\t]*$`, "im");
+
+// Global + capturing twin of CARD_DIVIDER_REGEX, used to split raw text
+// into alternating [body, label, body, label, ...] chunks when labeled
+// mode is active.
+const LABEL_LINE_SPLIT_REGEX = new RegExp(`^[ \\t]*((?:-{3,}|${SECTION_LABEL_SRC}))[ \\t]*$`, "gim");
+
 export function parseCopy(rawInput: string): ParseResult {
   const warnings: string[] = [];
   const text = rawInput.replace(/\r\n/g, "\n");
@@ -79,8 +126,8 @@ export function parseCopy(rawInput: string): ParseResult {
     for (const block of blocks) {
       const blockText = block.lines.join("\n");
       if (block.kind === "miolo") {
-        // A lone "---" on its own line separates miolo cards within this block.
-        const subCards = blockText.split(/^\s*---\s*$/m);
+        // A lone "---" (or "slide"/"card"/"lâmina") on its own line separates miolo cards within this block.
+        const subCards = blockText.split(CARD_DIVIDER_REGEX);
         for (const sub of subCards) {
           const paragraphs = splitParagraphs(sub);
           if (paragraphs.length === 0) continue;
@@ -99,6 +146,38 @@ export function parseCopy(rawInput: string): ParseResult {
           manualMarkupUsed: hasManualMarkup(blockText),
         });
       }
+    }
+  } else if (SECTION_LABEL_REGEX.test(text)) {
+    // Labeled-section style: each card starts with its own label line
+    // ("Slide 1", "Slide 1 / lâmina 1 / card 1", "CTA", ...) followed by
+    // that card's text. The label itself is stripped out — never rendered.
+    // A label containing "cta" always marks the CTA card, regardless of
+    // position; among the rest, the first is the capa and the remainder
+    // are miolo, in order.
+    warnings.push(
+      "Nenhum marcador [CAPA]/[MIOLO]/[CTA] encontrado — os rótulos de slide/card/lâmina/CTA foram usados para separar os cards (o primeiro rotulado virou capa, o rotulado como CTA virou CTA, e o restante virou miolo)."
+    );
+
+    const parts = text.split(LABEL_LINE_SPLIT_REGEX);
+    const sections: { label: string; body: string }[] = [];
+    const preText = (parts[0] || "").trim();
+    if (preText) sections.push({ label: "", body: preText });
+    for (let i = 1; i < parts.length; i += 2) {
+      sections.push({ label: parts[i] || "", body: parts[i + 1] || "" });
+    }
+
+    let capaAssigned = false;
+    for (const section of sections) {
+      const paragraphs = splitParagraphs(section.body);
+      if (paragraphs.length === 0) continue;
+      const isCta = /cta/i.test(section.label);
+      const kind: RawCardKind = isCta ? "cta" : capaAssigned ? "miolo" : "capa";
+      if (kind === "capa") capaAssigned = true;
+      cards.push({
+        kind,
+        paragraphs,
+        manualMarkupUsed: hasManualMarkup(section.body),
+      });
     }
   } else {
     warnings.push(
@@ -125,7 +204,7 @@ export function parseCopy(rawInput: string): ParseResult {
     });
 
     for (const block of middleBlocks) {
-      const subCards = block.split(/^\s*---\s*$/m);
+      const subCards = block.split(CARD_DIVIDER_REGEX);
       for (const sub of subCards) {
         const p = stripEmojis(sub);
         if (!p.text) continue;
