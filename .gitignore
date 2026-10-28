@@ -6,3 +6,5 @@ node_modules
 lib/fonts.generated.ts
 lib/assets.generated.ts
 tsconfig.tsbuildinfo
+.env.local
+.data/

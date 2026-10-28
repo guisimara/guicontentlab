@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Focal =
   | "top-left" | "top-center" | "top-right"
@@ -55,10 +55,84 @@ export default function Page() {
   const [jobId, setJobId] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<Preview | null>(null);
 
+  const [driveConnected, setDriveConnected] = useState(false);
+  const [driveUploading, setDriveUploading] = useState(false);
+  const [driveError, setDriveError] = useState<string | null>(null);
+  const [driveFolderUrl, setDriveFolderUrl] = useState<string | null>(null);
+
   const capaInputRef = useRef<HTMLInputElement>(null);
   const ctaInputRef = useRef<HTMLInputElement>(null);
 
   const analysis = useMemo(() => (copyText.trim() ? preAnalyze(copyText) : null), [copyText]);
+
+  // Handles the round-trip back from Google's OAuth consent screen: if the
+  // user had clicked "Enviar para o Drive" before being connected, we stash
+  // the jobId in sessionStorage, send them to Google, and when they land
+  // back here we restore the jobId and finish the upload automatically —
+  // so from the user's point of view it's still a single click.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const authResult = params.get("driveAuth");
+    if (authResult) {
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+    const pendingJobId = sessionStorage.getItem("clg_pending_drive_jobId");
+
+    if (authResult === "success" && pendingJobId) {
+      sessionStorage.removeItem("clg_pending_drive_jobId");
+      setJobId(pendingJobId);
+      setDriveConnected(true);
+      void sendToDrive(pendingJobId);
+      return;
+    }
+    if (authResult === "denied") {
+      sessionStorage.removeItem("clg_pending_drive_jobId");
+      setDriveError("Autorização negada — não foi possível conectar ao Drive.");
+    } else if (authResult === "error") {
+      sessionStorage.removeItem("clg_pending_drive_jobId");
+      setDriveError("Erro ao conectar ao Drive. Tente novamente.");
+    }
+
+    fetch("/api/auth/google/status")
+      .then((r) => r.json())
+      .then((d) => setDriveConnected(!!d.connected))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function sendToDrive(id: string) {
+    setDriveUploading(true);
+    setDriveError(null);
+    setDriveFolderUrl(null);
+    try {
+      const res = await fetch("/api/drive-upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId: id }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (data.needsAuth) {
+          sessionStorage.setItem("clg_pending_drive_jobId", id);
+          window.location.href = "/api/auth/google";
+          return;
+        }
+        setDriveError(data.error || "Falha ao enviar para o Drive.");
+        return;
+      }
+      setDriveConnected(true);
+      setDriveFolderUrl(data.folderUrl);
+    } catch (err: any) {
+      setDriveError(`Erro de conexão: ${err?.message || String(err)}`);
+    } finally {
+      setDriveUploading(false);
+    }
+  }
+
+  function handleSendToDrive() {
+    if (!jobId) return;
+    void sendToDrive(jobId);
+  }
 
   function handleFile(file: File | null, which: "capa" | "cta") {
     if (which === "capa") {
@@ -73,6 +147,8 @@ export default function Page() {
   async function handleGenerate() {
     setError(null);
     setLoading(true);
+    setDriveError(null);
+    setDriveFolderUrl(null);
     try {
       const fd = new FormData();
       fd.set("copyText", copyText);
@@ -271,13 +347,51 @@ export default function Page() {
 
           {jobId && (
             <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
-              <button
-                onClick={handleDownloadZip}
-                className="w-full rounded-xl px-5 py-3 text-sm font-medium text-white shadow-sm"
-                style={{ backgroundColor: AZUL }}
-              >
-                Baixar ZIP
-              </button>
+              <div className="flex gap-3">
+                <button
+                  onClick={handleDownloadZip}
+                  className="flex-1 rounded-xl px-5 py-3 text-sm font-medium text-white shadow-sm"
+                  style={{ backgroundColor: AZUL }}
+                >
+                  Baixar ZIP
+                </button>
+                <button
+                  onClick={handleSendToDrive}
+                  disabled={driveUploading}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-xl border px-5 py-3 text-sm font-medium shadow-sm transition-opacity disabled:opacity-50"
+                  style={{ borderColor: AZUL, color: AZUL }}
+                >
+                  {driveUploading && (
+                    <span
+                      className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-t-transparent"
+                      style={{ borderColor: AZUL, borderTopColor: "transparent" }}
+                    />
+                  )}
+                  {driveUploading
+                    ? "Enviando..."
+                    : driveConnected
+                      ? "Enviar para o Drive"
+                      : "Conectar e enviar ao Drive"}
+                </button>
+              </div>
+
+              {driveFolderUrl && (
+                <p className="mt-3 text-xs text-neutral-500">
+                  Enviado com sucesso.{" "}
+                  <a
+                    href={driveFolderUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium underline"
+                    style={{ color: AZUL }}
+                  >
+                    Abrir pasta no Drive
+                  </a>
+                </p>
+              )}
+              {driveError && (
+                <p className="mt-3 text-xs text-red-700">{driveError}</p>
+              )}
             </section>
           )}
 
