@@ -183,16 +183,19 @@ changing colors, names, copy and the two format options below.
     given `105px` each side (`left: 105px; width: 870px`), replacing the
     old `100px`/`880px` values.
 
-19. **"Leia a legenda" tag — placeholder pending final asset.** The user
-    will send a reference PNG for this tag later. Implemented now as a
-    simple text pill (`readCaptionTag()` in `lib/template.ts`) positioned
-    per the given spec (`bottom: 193px`, 59px-tall zone up to 252px from
-    the bottom), toggled per-job via `showReadCaptionTag` (capa only, never
-    on cta). Horizontal placement/width is not specified by the brief —
-    assumed centered within the same `105px` side margins used for the
-    headline, for visual consistency. When the final asset arrives, only
-    `readCaptionTag()`'s inner markup needs to change (e.g., to an
-    `<img>`); the positioning wrapper and toggle plumbing do not.
+19. **"Leia a legenda" tag — final asset swapped in.** Initially
+    implemented as a text pill placeholder, then replaced with the user's
+    final asset `img/slug-legenda.png` (270×61) once provided. Loaded as a
+    base64 data URI via `scripts/build-assets.mjs` (`READ_CAPTION_TAG_DATA_URI`
+    in `lib/assets.generated.ts`) and rendered as an `<img>` in
+    `readCaptionTag()` (`lib/template.ts`), scaled to `height: 59px` /
+    `width: auto` to fit the given zone (`bottom: 193px`, 59px-tall zone up
+    to 252px from the bottom), toggled per-job via `showReadCaptionTag`
+    (capa only, never on cta). Horizontal placement/width is not specified
+    by the brief — kept centered within the same `105px` side margins used
+    for the headline, for visual consistency. Verified visually via a
+    real-browser render (lightbox full-size view): tag sits centered below
+    the headline, above the `@guisimara` footer, no clipping/distortion.
 
 20. **"Estático" format scope.** Confirmed with the user: "Estático"
     renders only the capa card (1 PNG, `01-capa.png`), skipping miolo and

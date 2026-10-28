@@ -2,7 +2,7 @@
 // HTML+CSS string generator for a card (miolo, capa, cta).
 // LOCKED layout numbers per spec — do not alter.
 import { FONT_FACE_CSS } from "./fonts.generated";
-import { MIOLO_BG_DATA_URI, CAPA_MASK_DATA_URI } from "./assets.generated";
+import { MIOLO_BG_DATA_URI, CAPA_MASK_DATA_URI, READ_CAPTION_TAG_DATA_URI } from "./assets.generated";
 
 export const CANVAS_W = 1080;
 export const CANVAS_H = 1350;
@@ -91,16 +91,15 @@ export function capaFooterCss(): string {
   `;
 }
 
-// "Leia a legenda" tag — PLACEHOLDER pending the final PNG asset (user will
-// send a reference model to swap in here). Positioned per spec: the tag's
-// bottom edge sits at 193px from the canvas bottom, and the whole tag must
-// stay within the 59px-tall zone between 252px and 193px from the bottom.
-// Horizontal placement is not specified by the brief; assumed centered
-// within the same 105px side margins used for the headline (documented in
-// DECISIONS.md). Swap the inner markup for an <img> once the final asset
-// arrives — the positioning wrapper below does not need to change.
+// "Leia a legenda" tag — final asset, img/slug-legenda.png (270x61),
+// loaded as a data URI via scripts/build-assets.mjs. Positioned per spec:
+// the tag's bottom edge sits at 193px from the canvas bottom, and the whole
+// tag must stay within the 59px-tall zone between 252px and 193px from the
+// bottom. Horizontal placement is not specified by the brief; assumed
+// centered within the same 105px side margins used for the headline
+// (documented in DECISIONS.md).
 export function readCaptionTag(): string {
-  return `<div class="read-caption-tag"><span class="read-caption-tag-pill">leia a legenda</span></div>`;
+  return `<div class="read-caption-tag"><img class="read-caption-tag-img" src="${READ_CAPTION_TAG_DATA_URI}" /></div>`;
 }
 
 export function readCaptionTagCss(): string {
@@ -109,12 +108,8 @@ export function readCaptionTagCss(): string {
       position: absolute; left: 105px; width: 870px; bottom: 193px; height: 59px;
       display: flex; align-items: center; justify-content: center;
     }
-    .read-caption-tag-pill {
-      display: inline-flex; align-items: center; justify-content: center;
-      height: 40px; padding: 0 20px; border-radius: 20px;
-      background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.6);
-      color: ${TOKENS.branco}; font-size: 18px; font-weight: 700; letter-spacing: 0.3px;
-      text-shadow: 0 2px 8px rgba(0,0,0,0.5);
+    .read-caption-tag-img {
+      height: 59px; width: auto;
     }
   `;
 }
