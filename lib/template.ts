@@ -45,7 +45,6 @@ export function mioloFooter(): string {
   return `
   <div class="footer-miolo">
     <div class="handle">@guisimara</div>
-    <div class="arrow">→</div>
     <div class="vbar"></div>
   </div>`;
 }
@@ -55,10 +54,6 @@ export function mioloFooterCss(): string {
     .footer-miolo .handle {
       position: absolute; top: 1227px; left: 0; width: 100%;
       text-align: center; font-size: 28px; font-weight: 700; color: ${TOKENS.azul};
-    }
-    .footer-miolo .arrow {
-      position: absolute; top: 1225px; right: 105px;
-      font-size: 111px; color: ${TOKENS.azul}; line-height: 1;
     }
     .footer-miolo .vbar {
       position: absolute; top: 1295px; left: 50%; transform: translateX(-50%);
@@ -72,7 +67,6 @@ export function capaFooter(): string {
   return `
   <div class="footer-capa">
     <div class="handle">@guisimara</div>
-    <div class="arrow">→</div>
   </div>`;
 }
 
@@ -81,11 +75,6 @@ export function capaFooterCss(): string {
     .footer-capa .handle {
       position: absolute; top: 1210px; left: 0; width: 100%;
       text-align: center; font-size: 18px; font-weight: 300; color: ${TOKENS.branco};
-      text-shadow: 0 2px 8px rgba(0,0,0,0.5);
-    }
-    .footer-capa .arrow {
-      position: absolute; top: 1208px; right: 118px;
-      font-size: 111px; color: ${TOKENS.branco}; line-height: 1;
       text-shadow: 0 2px 8px rgba(0,0,0,0.5);
     }
   `;

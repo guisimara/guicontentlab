@@ -17,25 +17,6 @@ const FOCAL_GRID: Focal[] = [
 
 const AZUL = "#0F3250";
 
-interface QaCheck { id: string; label: string; pass: boolean; detail?: string }
-interface CardReportEntry {
-  filename: string;
-  kind: "capa" | "miolo" | "cta";
-  fontSizePx?: number;
-  lineCount?: number;
-  highlights?: { word: string; type: string }[];
-  emojisRemoved?: number;
-  widowCorrections?: number;
-  errors?: string[];
-}
-interface JobReport {
-  jobId: string;
-  createdAt: string;
-  warnings: string[];
-  cards: CardReportEntry[];
-  qa: QaCheck[];
-  qaPassed: boolean;
-}
 interface Preview { filename: string; base64: string }
 
 function preAnalyze(copyText: string) {
@@ -70,12 +51,9 @@ export default function Page() {
   const [confirmed, setConfirmed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [report, setReport] = useState<JobReport | null>(null);
   const [previews, setPreviews] = useState<Preview[]>([]);
   const [jobId, setJobId] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<Preview | null>(null);
-  const [downloadOverride, setDownloadOverride] = useState(false);
-  const [qaExpanded, setQaExpanded] = useState<boolean | null>(null);
 
   const capaInputRef = useRef<HTMLInputElement>(null);
   const ctaInputRef = useRef<HTMLInputElement>(null);
@@ -95,8 +73,6 @@ export default function Page() {
   async function handleGenerate() {
     setError(null);
     setLoading(true);
-    setDownloadOverride(false);
-    setQaExpanded(null);
     try {
       const fd = new FormData();
       fd.set("copyText", copyText);
@@ -111,11 +87,9 @@ export default function Page() {
       const data = await res.json();
       if (!res.ok) {
         setError(data.error || "Falha ao gerar as artes.");
-        if (data.report) setReport(data.report);
         setLoading(false);
         return;
       }
-      setReport(data.report);
       setPreviews(data.previews);
       setJobId(data.jobId);
     } catch (err: any) {
@@ -129,10 +103,6 @@ export default function Page() {
     if (!jobId) return;
     window.location.href = `/api/zip?jobId=${jobId}`;
   }
-
-  const canDownload = report ? report.qaPassed || downloadOverride : false;
-  const qaFailCount = report ? report.qa.filter((q) => !q.pass).length : 0;
-  const showQaDetails = qaExpanded ?? (report ? !report.qaPassed : false);
 
   return (
     <div className="mx-auto max-w-[1600px] px-10 py-8 2xl:px-20">
@@ -189,9 +159,9 @@ export default function Page() {
             className="w-full resize-y rounded-xl border border-neutral-200 bg-neutral-50 p-3.5 text-sm leading-relaxed outline-none transition-colors focus:border-neutral-400"
           />
 
-          <div className="mt-4 flex flex-col gap-4">
+          <div className="mt-4 grid grid-cols-2 gap-3">
             <ImageUploader
-              label="Imagem de capa"
+              label="Capa"
               previewUrl={capaPreviewUrl}
               onFile={(f) => handleFile(f, "capa")}
               focal={capaFocal}
@@ -200,7 +170,7 @@ export default function Page() {
             />
             {formato === "carrossel" && (
               <ImageUploader
-                label="Imagem de CTA (opcional)"
+                label="CTA"
                 previewUrl={ctaPreviewUrl}
                 onFile={(f) => handleFile(f, "cta")}
                 focal={ctaFocal}
@@ -299,84 +269,19 @@ export default function Page() {
             </section>
           )}
 
-          {report && (
-            <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
+          {jobId && (
+            <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
               <button
-                onClick={() => setQaExpanded(!showQaDetails)}
-                className="flex w-full items-center justify-between gap-3 p-5 text-left"
+                onClick={handleDownloadZip}
+                className="w-full rounded-xl px-5 py-3 text-sm font-medium text-white shadow-sm"
+                style={{ backgroundColor: AZUL }}
               >
-                <div className="flex items-center gap-2">
-                  <StepBadge n={3} />
-                  <span
-                    className={`flex h-6 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium ${
-                      report.qaPassed ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"
-                    }`}
-                  >
-                    {report.qaPassed ? "✓ QA ok" : `⚠ ${qaFailCount} ${qaFailCount === 1 ? "problema" : "problemas"}`}
-                  </span>
-                </div>
-                <span className="text-xs text-neutral-400">{showQaDetails ? "ocultar detalhes ▲" : "ver detalhes ▼"}</span>
+                Baixar ZIP
               </button>
-
-              {showQaDetails && (
-                <div className="border-t border-neutral-100 px-5 pb-5 pt-4">
-                  <ul className="space-y-1.5 text-sm">
-                    {report.qa.map((q) => (
-                      <li key={q.id} className="flex items-start gap-2">
-                        <span className={q.pass ? "text-green-600" : "text-red-600"}>{q.pass ? "✓" : "✗"}</span>
-                        <span>
-                          {q.label}
-                          {q.detail && <span className="ml-1 text-neutral-500">— {q.detail}</span>}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-
-                  {report.warnings.length > 0 && (
-                    <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
-                      <div className="mb-1 font-medium">Avisos</div>
-                      <ul className="list-disc pl-5">
-                        {report.warnings.map((w, i) => (
-                          <li key={i}>{w}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {!report.qaPassed && (
-                    <label className="mt-4 flex items-center gap-2 text-sm text-neutral-700">
-                      <input
-                        type="checkbox"
-                        checked={downloadOverride}
-                        onChange={(e) => setDownloadOverride(e.target.checked)}
-                        className="h-4 w-4"
-                        style={{ accentColor: AZUL }}
-                      />
-                      Eu entendo os problemas, baixar mesmo assim.
-                    </label>
-                  )}
-                </div>
-              )}
-
-              {jobId && (
-                <div className="flex items-center justify-between gap-3 border-t border-neutral-100 bg-neutral-50 px-5 py-4">
-                  <p className="text-xs text-neutral-500">
-                    {canDownload ? "Pronto para baixar." : "Resolva o checklist de QA ou confirme acima para baixar mesmo assim."}
-                  </p>
-                  <button
-                    onClick={handleDownloadZip}
-                    disabled={!canDownload}
-                    className="shrink-0 rounded-xl px-5 py-2.5 text-sm font-medium text-white shadow-sm disabled:opacity-40"
-                    style={{ backgroundColor: AZUL }}
-                  >
-                    Baixar ZIP
-                  </button>
-                </div>
-              )}
             </section>
           )}
 
-          {previews.length === 0 && !report && (
+          {previews.length === 0 && !jobId && (
             <section className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-neutral-200 bg-white/50 p-5 text-center text-sm text-neutral-400">
               A prévia e o QA aparecem aqui depois de gerar as artes.
             </section>
@@ -457,45 +362,44 @@ function ImageUploader(props: {
   inputRef: React.RefObject<HTMLInputElement>;
 }) {
   return (
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-      {props.previewUrl ? (
-        <button
-          type="button"
-          onClick={() => props.inputRef.current?.click()}
-          className="group relative h-24 w-20 shrink-0 overflow-hidden rounded-lg border border-neutral-200"
-        >
-          <img src={props.previewUrl} alt="preview" className="h-full w-full object-cover" />
-          <div className="absolute inset-0 flex items-center justify-center bg-black/0 text-[10px] font-medium text-white opacity-0 transition-all group-hover:bg-black/40 group-hover:opacity-100">
-            trocar
-          </div>
-        </button>
-      ) : (
-        <button
-          type="button"
-          onClick={() => props.inputRef.current?.click()}
-          className="flex h-24 w-20 shrink-0 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-neutral-300 text-neutral-400 hover:border-neutral-400 hover:text-neutral-500"
-        >
-          <span className="text-lg leading-none">+</span>
-          <span className="px-1 text-center text-[10px] leading-tight">{props.label}</span>
-        </button>
-      )}
-      <input
-        ref={props.inputRef}
-        type="file"
-        accept="image/*"
-        onChange={(e) => props.onFile(e.target.files?.[0] || null)}
-        className="hidden"
-      />
+    <div className="flex flex-col gap-2">
+      <div className="text-xs font-medium text-neutral-600">{props.label}</div>
+      <div className="flex items-start gap-2">
+        {props.previewUrl ? (
+          <button
+            type="button"
+            onClick={() => props.inputRef.current?.click()}
+            className="group relative h-20 w-16 shrink-0 overflow-hidden rounded-lg border border-neutral-200"
+          >
+            <img src={props.previewUrl} alt="preview" className="h-full w-full object-cover" />
+            <div className="absolute inset-0 flex items-center justify-center bg-black/0 text-[9px] font-medium text-white opacity-0 transition-all group-hover:bg-black/40 group-hover:opacity-100">
+              trocar
+            </div>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => props.inputRef.current?.click()}
+            className="flex h-20 w-16 shrink-0 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-neutral-300 text-neutral-400 hover:border-neutral-400 hover:text-neutral-500"
+          >
+            <span className="text-lg leading-none">+</span>
+          </button>
+        )}
+        <input
+          ref={props.inputRef}
+          type="file"
+          accept="image/*"
+          onChange={(e) => props.onFile(e.target.files?.[0] || null)}
+          className="hidden"
+        />
 
-      <div className="flex-1">
-        <div className="mb-1.5 text-xs text-neutral-500">{props.label} — ponto focal</div>
-        <div className="grid w-20 grid-cols-3 gap-1">
+        <div className="grid grid-cols-3 gap-1">
           {FOCAL_GRID.map((pos) => (
             <button
               key={pos}
               type="button"
               onClick={() => props.onFocal(pos)}
-              className="h-6 w-6 rounded transition-colors"
+              className="h-5 w-5 rounded transition-colors"
               style={{ backgroundColor: props.focal === pos ? AZUL : "#E5E5E5" }}
               aria-label={pos}
             />
